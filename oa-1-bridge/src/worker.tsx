@@ -1,9 +1,11 @@
-import { render, route } from "rwsdk/router";
+import { prefix, render, route } from "rwsdk/router";
 import { defineApp } from "rwsdk/worker";
 
 import { Document } from "@/app/document";
 import { setCommonHeaders } from "@/app/headers";
 import { Home } from "@/app/pages/home";
+import { JobsPage } from "@/app/pages/admin/jobs";
+import { apiRoutes } from "./api/routes";
 
 export type AppContext = {};
 
@@ -13,5 +15,9 @@ export default defineApp([
     // setup ctx here
     ctx;
   },
-  render(Document, [route("/", Home)]),
+  prefix("/api", apiRoutes),
+  render(Document, [
+    route("/", Home),
+    route("/admin/jobs", JobsPage),
+  ]),
 ]);

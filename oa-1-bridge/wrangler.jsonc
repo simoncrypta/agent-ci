@@ -3,7 +3,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
 
   // Name of your worker
-  "name": "__change_me__",
+  "name": "oa-1",
+
+  // KV Namespaces
+  "kv_namespaces": [
+    {
+      "binding": "OA1_BRIDGE_JOBS",
+      "id": "replaced-by-actual-id"
+    },
+    {
+      "binding": "OA1_BRIDGE_PRESENCE",
+      "id": "replaced-by-actual-id"
+    }
+  ],
 
   // Entry point for your worker
   "main": "src/worker.tsx",

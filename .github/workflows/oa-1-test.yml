@@ -1,0 +1,12 @@
+name: OA-1 Test
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hello World
+        run: echo "Hello from GitHub Actions!"

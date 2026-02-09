@@ -14,6 +14,7 @@
     "dev:init": "rw-scripts dev-init",
     "preview": "vite preview",
     "worker:run": "rw-scripts worker-run",
+    "test:webhook": "npx tsx scripts/test-webhook.ts",
     "clean": "npm run clean:vite",
     "clean:vite": "rm -rf ./node_modules/.vite",
     "release": "rw-scripts ensure-deploy-env && npm run clean && npm run build && wrangler deploy",
@@ -25,7 +26,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-server-dom-webpack": "19.2.4",
-    "rwsdk": "1.0.0-beta.53"
+    "rwsdk": "1.0.0-beta.53",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.22.1",
