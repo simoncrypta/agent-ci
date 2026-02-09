@@ -7,5 +7,6 @@ export interface Job {
     };
     name: string;
   };
+  env?: Record<string, string>;
   [key: string]: any;
 }

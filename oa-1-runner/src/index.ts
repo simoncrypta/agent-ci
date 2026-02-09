@@ -1,12 +1,25 @@
 import { config } from "./config";
 import { pollJobs } from "./bridge";
-import { executeJob } from "./executor";
+import { executeJob, ensureImageExists } from "./executor";
 
 async function main() {
   console.log(`[Runner] Starting runner for user: ${config.GITHUB_USERNAME}`);
   console.log(`[Runner] Bridge URL: ${config.BRIDGE_URL}`);
 
-  // Polling loop
+  // 1. Pre-warm Docker environment
+  await ensureImageExists();
+  console.log("[Runner] Docker environment ready.");
+
+  // 2. Initial poll to announce availability
+  console.log("[Runner] Announcing availability to bridge...");
+  const initialJobs = await pollJobs();
+  if (initialJobs.length > 0) {
+    for (const job of initialJobs) {
+      await executeJob(job);
+    }
+  }
+
+  // 3. Regular Polling loop
   setInterval(async () => {
     console.log("[Runner] Polling for jobs...");
     const jobs = await pollJobs();
