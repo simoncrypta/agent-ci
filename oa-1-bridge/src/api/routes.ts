@@ -7,6 +7,7 @@ import { SECRETS } from "../secrets";
 export const apiRoutes = [
   route("/webhook", { post: handleWebhook }),
   route("/jobs", { get: handleJobs }),
+  route("/repos/:owner/:repo/actions/jobs/:jobId", { get: handleGitHubJobDetails }),
 ];
 
 const webhookHeadersSchema = z.object({
@@ -67,6 +68,12 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
 
   await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
   
+  // Store mapping for GitHub API mock
+  const jobId = payload.workflow_job?.id;
+  if (jobId) {
+    await env.OA1_BRIDGE_JOBS.put(`jobid@${jobId}`, deliveryId);
+  }
+  
   // 5. Identify User & Check Presence
   const presence = await env.OA1_BRIDGE_PRESENCE.get(`presence@${username}`);
   
@@ -121,6 +128,32 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
     headers: { "Content-Type": "application/json" },
   });
 }
+
+async function handleGitHubJobDetails({ params }: { params: Record<string, string> }): Promise<Response> {
+  const jobId = params.jobId;
+  const deliveryId = await env.OA1_BRIDGE_JOBS.get(`jobid@${jobId}`);
+
+  if (!deliveryId) {
+    return new Response(JSON.stringify({ message: "Not Found (DTU Mock)" }), { 
+      status: 404,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  const webhookDataRaw = await env.OA1_BRIDGE_JOBS.get(`webhook@${deliveryId}`);
+  if (!webhookDataRaw) {
+    return new Response(JSON.stringify({ message: "Webhook data missing (DTU Mock)" }), { 
+      status: 404,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  const webhookData = JSON.parse(webhookDataRaw);
+  return new Response(JSON.stringify(webhookData.payload.workflow_job), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 
 /**
  * Utilities

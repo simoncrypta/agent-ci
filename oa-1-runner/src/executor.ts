@@ -40,7 +40,7 @@ export async function executeJob(job: Job): Promise<void> {
       `GITHUB_JOB_ID=${job.githubJobId}`,
       `GITHUB_REPO=${job.githubRepo}`,
       `GITHUB_TOKEN=${job.githubToken}`,
-      `GITHUB_API_URL=https://api.github.com`,
+      `GITHUB_API_URL=${config.GITHUB_API_URL}`,
     ];
 
     // 3. Create and Start Container
