@@ -57,7 +57,7 @@ async function main() {
   const signature = await signPayload(rawPayload, config.GITHUB_WEBHOOK_SECRET);
 
   try {
-    const response = await fetch(`${config.BRIDGE_URL}/webhook`, {
+    const response = await fetch(`${config.BRIDGE_URL}/api/webhook`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

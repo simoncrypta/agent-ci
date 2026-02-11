@@ -46,15 +46,20 @@ Shared environment variables are managed at the root.
 
 ## Run Locally
 
-You can run all services simultaneously from the root:
+You can run all services in the required sequence from the root:
 ```bash
 pnpm dev
 ```
 
+This command uses `concurrently` and `wait-on` to ensure:
+1. `dtu/github-actions` (Mock Server) starts first on port 8910.
+2. `bridge` waits for the mock server to be ready and starts on port 8911.
+3. `runner` waits for the bridge to be ready.
+
 Or target specific services:
 ```bash
+pnpm --filter dtu/github-actions dev
 pnpm --filter bridge dev
-pnpm --filter runner dev
 ```
 
 ---

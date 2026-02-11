@@ -4,11 +4,8 @@
   "description": "Digital Twin Universe - GitHub Actions Mock and Simulation",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "server": "node --env-file=.env dist/server.js",
-    "simulate": "node --env-file=.env dist/simulate.js",
-    "server:dev": "tsx src/server.ts",
-    "simulate:dev": "tsx src/simulate.ts"
+    "dev": "tsx --env-file=.env src/server.ts",
+    "simulate": "tsx --env-file=.env src/simulate.ts"
   },
   "keywords": [],
   "author": "",

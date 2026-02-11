@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "build": "vite build",
-    "dev": "vite dev",
+    "dev": "vite dev --port 8911",
     "dev:init": "rw-scripts dev-init",
     "preview": "vite preview",
     "worker:run": "rw-scripts worker-run",
@@ -38,12 +38,5 @@
     "typescript": "5.9.3",
     "vite": "7.3.1",
     "wrangler": "4.61.1"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp",
-      "workerd"
-    ]
   }
 }

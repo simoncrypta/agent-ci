@@ -17,12 +17,12 @@ const configSchema = z.object({
    * The internal URL where the DTU Mock Server is reachable.
    * Simulation scripts seed this server.
    */
-  DTU_URL: z.string().url().default("http://localhost:3333"),
+  DTU_URL: z.string().url().default("http://localhost:8910"),
 
   /**
    * The port the DTU Mock Server listens on.
    */
-  DTU_PORT: z.coerce.number().default(3333),
+  DTU_PORT: z.coerce.number().default(8910),
 });
 
 export type Config = z.infer<typeof configSchema>;

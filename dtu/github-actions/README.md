@@ -19,13 +19,13 @@ From the project root:
 
 1.  **Start the Mock Server**:
     ```bash
-    pnpm --filter dtu/github-actions server:dev
+    pnpm --filter dtu/github-actions dev
     ```
 2.  **Run Simulation**:
     ```bash
-    pnpm --filter dtu/github-actions simulate:dev <event_name>
+    pnpm --filter dtu/github-actions simulate <event_name>
     ```
-    (e.g., `pnpm --filter dtu/github-actions simulate:dev push`)
+    (e.g., `pnpm --filter dtu/github-actions simulate push`)
 
 ## Structure
 
