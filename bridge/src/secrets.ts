@@ -5,6 +5,7 @@ const secretsSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1, "GITHUB_WEBHOOK_SECRET is required"),
   GITHUB_APP_ID: z.string().min(1, "GITHUB_APP_ID is required"),
   GITHUB_PRIVATE_KEY: z.string().min(1, "GITHUB_PRIVATE_KEY is required"),
+  BRIDGE_API_KEY: z.string().min(1, "BRIDGE_API_KEY is required"),
 });
 
 export type Secrets = z.infer<typeof secretsSchema>;

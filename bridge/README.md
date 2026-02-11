@@ -14,8 +14,7 @@ This service is "stateless" but uses Cloudflare KV for presence and job queuing.
 ### API Endpoints
 
 - `POST /api/webhook`: Receives GitHub webhooks using `X-Hub-Signature-256`.
-- `POST /api/heartbeat`: Receives `{ runnerId, status }` to update presence.
-- `GET /api/jobs?runnerId=...`: Returns pending jobs for a specific runner.
+- `GET /api/jobs?username=...`: Returns pending jobs for a specific user. Requires `x-api-key` header.
 
 ## Development
 

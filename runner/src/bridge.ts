@@ -5,7 +5,11 @@ export async function pollJobs(): Promise<Job[]> {
   const url = `${config.BRIDGE_URL}/api/jobs?username=${config.GITHUB_USERNAME}`;
   
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        "x-api-key": config.BRIDGE_API_KEY,
+      },
+    });
     
     if (!response.ok) {
       console.error(`[Bridge] Failed to poll jobs: ${response.status} ${response.statusText}`);

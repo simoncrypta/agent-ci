@@ -5,9 +5,16 @@ import { z } from "zod";
 import { SECRETS } from "../secrets";
 import { getInstallationToken } from "../github";
 
+function requiresAuthToken({ request }: { request: Request }) {
+  const apiKey = request.headers.get("x-api-key");
+  if (!apiKey || apiKey !== SECRETS.BRIDGE_API_KEY) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+}
+
 export const apiRoutes = [
   route("/webhook", { post: handleWebhook }),
-  route("/jobs", { get: handleJobs }),
+  route("/jobs", [requiresAuthToken, handleJobs ]),
 ];
 
 const webhookHeadersSchema = z.object({
@@ -107,7 +114,7 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
 
 
 
-async function handleJobs({ request }: { request: Request }): Promise<Response> {
+async function handleJobs({ request }: { request: Request }): Promise<Response> { 
   const url = new URL(request.url);
   const username = url.searchParams.get("username");
 

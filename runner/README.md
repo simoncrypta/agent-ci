@@ -25,3 +25,7 @@ The runner relies on:
 - `BRIDGE_URL`: The URL of the Bridge API.
 - `BRIDGE_API_KEY`: Authentication for polling jobs.
 - `GITHUB_USERNAME`: Your GitHub username for identifying assigned jobs.
+
+## Future
+
+We will enable authentication via GitHub for your personal account.
