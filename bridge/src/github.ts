@@ -75,7 +75,11 @@ async function importPrivateKey(pem: string): Promise<CryptoKey> {
  * Gets a registration token for a specific repository.
  */
 export async function getRegistrationToken(installationId: string, repositoryName: string): Promise<string> {
-  const token = await getInstallationToken(installationId, repositoryName, { actions: "write" });
+  const token = await getInstallationToken(installationId, repositoryName, { 
+    actions: "write", 
+    administration: "write", 
+    metadata: "read" 
+  });
   const url = `${SECRETS.GITHUB_API_URL}/repos/${repositoryName}/actions/runners/registration-token`;
 
   const response = await fetch(url, {
@@ -149,6 +153,13 @@ export async function getInstallationToken(
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (response.status === 422 && errorBody.includes("permissions requested are not granted")) {
+        throw new Error(
+            `GitHub App Permission Error: The installation lacks the requested permissions. ` +
+            `Please ensure your GitHub App has "Actions: Read & write" and "Metadata: Read-only" permissions, ` +
+            `and that these changes have been accepted by the repository owner.\n${errorBody}`
+        );
+    }
     throw new Error(`Failed to get installation token: ${response.status} ${response.statusText}\n${errorBody}`);
   }
 

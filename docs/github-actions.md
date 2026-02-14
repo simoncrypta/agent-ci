@@ -83,6 +83,7 @@ For the Bridge to perform this automation, the following environment variables (
 ### Required GitHub App Permissions
 The GitHub App must be installed on the repository with at least:
 - **Actions**: `Read & write`
+- **Administration**: `Read & write`
 - **Metadata**: `Read-only`
 
 ---

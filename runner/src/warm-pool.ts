@@ -77,9 +77,10 @@ export class WarmPool {
 
   private async spawnRunner() {
     const runId = this.nextRunnerId++;
-    const containerName = `${CONTAINER_PREFIX}${runId}`;
+    const randomSuffix = Math.random().toString(36).substring(2, 7);
+    const containerName = `${CONTAINER_PREFIX}${runId}-${randomSuffix}`;
 
-    const workDir = path.resolve(process.cwd(), "_/work", runId.toString()); // Unique work dir per runner
+    const workDir = path.resolve(process.cwd(), "_/work", containerName); // Unique work dir per runner name
 
     // Ensure directories exist
     if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
@@ -103,9 +104,10 @@ export class WarmPool {
                 `RUNNER_NAME=${containerName}`,
                 `RUNNER_TOKEN=${registrationToken}`,
                 `RUNNER_REPOSITORY_URL=${repoUrl}`,
-                `RUNNER_FLAGS=--ephemeral --unattended`,
+                `RUNNER_FLAGS=--ephemeral --unattended --labels opposite-actions`,
             ],
-            Cmd: ["/home/runner/run.sh", "--once"],
+            // Run config.sh before run.sh to properly register the runner with the correct labels
+            Cmd: ["bash", "-c", "./config.sh --url $RUNNER_REPOSITORY_URL --token $RUNNER_TOKEN --name $RUNNER_NAME --unattended $RUNNER_FLAGS && ./run.sh --once"],
             HostConfig: {
             Binds: [
                 `${workDir}:/home/runner/_work`,
