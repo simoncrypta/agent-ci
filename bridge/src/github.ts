@@ -81,6 +81,7 @@ export async function getRegistrationToken(installationId: string, repositoryNam
     metadata: "read" 
   });
   const url = `${SECRETS.GITHUB_API_URL}/repos/${repositoryName}/actions/runners/registration-token`;
+  console.log(`[Bridge] getRegistrationToken: Sending POST to ${url}...`);
 
   const response = await fetch(url, {
     method: "POST",
@@ -107,7 +108,7 @@ export async function getRegistrationToken(installationId: string, repositoryNam
 export async function getInstallationIdForRepo(owner: string, repo: string): Promise<string> {
     const jwt = await generateGitHubAppJWT();
     const url = `${SECRETS.GITHUB_API_URL}/repos/${owner}/${repo}/installation`;
-
+    console.log(`[Bridge] getInstallationIdForRepo: Sending GET to ${url}...`);
     const response = await fetch(url, {
         headers: {
             Authorization: `Bearer ${jwt}`,

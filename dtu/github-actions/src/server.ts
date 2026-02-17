@@ -10,9 +10,15 @@ import { config } from './config.js';
  */
 
 export const jobs = new Map<string, any>();
+export const sessions = new Map<string, any>();
+export const messageQueues = new Map<string, any[]>();
+export const pendingPolls = new Map<string, http.ServerResponse>();
 
-// Clear jobs on start
+// Clear state on start
 jobs.clear();
+sessions.clear();
+messageQueues.clear();
+pendingPolls.clear();
 
 export const server = http.createServer((req, res) => {
   const { method, headers } = req;
@@ -55,6 +61,48 @@ export const server = http.createServer((req, res) => {
         if (jobId) {
           jobs.set(jobId, payload);
           console.log(`[DTU] Seeded job: ${jobId}`);
+          
+          // Notify any pending polls
+          for (const [sessionId, res] of pendingPolls) {
+              console.log(`[DTU] Notifying session ${sessionId} of new job ${jobId}`);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                  messageId: 1,
+                  messageType: 'PipelineAgentJobRequest',
+                  body: JSON.stringify({
+                      MessageType: 'PipelineAgentJobRequest',
+                      Plan: {
+                          PlanId: crypto.randomUUID(),
+                      },
+                      Timeline: {
+                          Id: crypto.randomUUID(),
+                      },
+                      JobId: crypto.randomUUID(),
+                      RequestId: parseInt(jobId) || 1,
+                      JobName: payload.name || 'test-job',
+                      Steps: [],
+                      Variables: {},
+                      Resources: {
+                          Endpoints: [
+                              {
+                                  Name: "SystemVssConnection",
+                                  Url: baseUrl,
+                                  Authorization: {
+                                      Scheme: "OAuth",
+                                      Parameters: {
+                                          AccessToken: `${Buffer.from(JSON.stringify({ alg: "None", typ: "JWT" })).toString('base64url')}.${Buffer.from(JSON.stringify({ orch_id: crypto.randomUUID() })).toString('base64url')}.`
+                                      }
+                                  }
+                              }
+                          ]
+                      },
+                      Workspace: {},
+                      ContextData: {}
+                  })
+              }));
+              pendingPolls.delete(sessionId);
+          }
+
           res.writeHead(201, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ status: 'ok', jobId }));
         } else {
@@ -196,6 +244,9 @@ export const server = http.createServer((req, res) => {
           }
         };
 
+        sessions.set(newSessionId, response);
+        messageQueues.set(newSessionId, []);
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(response));
         return;
@@ -219,16 +270,71 @@ export const server = http.createServer((req, res) => {
        const lastMessageId = urlParts.searchParams.get('lastMessageId');
        console.log(`[DTU] Polling messages for session ${sessionId} (lastMessageId: ${lastMessageId})`);
 
-       // Long poll: Wait up to 20 seconds before returning empty to avoid busy-looping
-       setTimeout(() => {
-         if (!res.writableEnded) {
+       if (!sessionId || !sessions.has(sessionId)) {
+           res.writeHead(404);
+           res.end('Session not found');
+           return;
+       }
+
+       // If there's already a pending poll for this session, close it
+       const existing = pendingPolls.get(sessionId);
+       if (existing) {
+           existing.writeHead(204);
+           existing.end();
+       }
+       pendingPolls.set(sessionId, res);
+
+       // Check if we have any queued jobs to send immediately
+       if (jobs.size > 0) {
+           const [[jobId, jobData]] = Array.from(jobs.entries());
+           console.log(`[DTU] Sending immediate job ${jobId} to session ${sessionId}`);
            res.writeHead(200, { 'Content-Type': 'application/json' });
            res.end(JSON.stringify({
-             count: 0,
-             value: []
+               messageId: 1,
+               messageType: 'PipelineAgentJobRequest',
+               body: JSON.stringify({
+                   MessageType: 'PipelineAgentJobRequest',
+                   Plan: {
+                       PlanId: crypto.randomUUID(),
+                   },
+                   Timeline: {
+                       Id: crypto.randomUUID(),
+                   },
+                   JobId: crypto.randomUUID(),
+                   RequestId: parseInt(jobId) || 1,
+                   JobName: jobData.name || 'test-job',
+                   Steps: [],
+                   Variables: {},
+                   Resources: {
+                       Endpoints: []
+                   },
+                   Workspace: {},
+                   ContextData: {}
+               })
            }));
+           jobs.delete(jobId);
+           pendingPolls.delete(sessionId);
+           return;
+       }
+
+       // Long poll: Wait up to 20 seconds before returning empty
+       const timeout = setTimeout(() => {
+         if (pendingPolls.get(sessionId) === res) {
+           pendingPolls.delete(sessionId);
+           if (!res.writableEnded) {
+             // Returning 204 No Content for timeout is often better for mocks
+             res.writeHead(204);
+             res.end();
+           }
          }
        }, 20000);
+
+       res.on('close', () => {
+           clearTimeout(timeout);
+           if (pendingPolls.get(sessionId) === res) {
+               pendingPolls.delete(sessionId);
+           }
+       });
        return;
     }
 

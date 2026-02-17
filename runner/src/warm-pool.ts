@@ -124,6 +124,7 @@ export class WarmPool {
         const dockerApiUrl = config.GITHUB_API_URL.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal");
         const repoUrl = `${dockerApiUrl}/${config.GITHUB_REPO}`;
 
+        console.log(`[WarmPool] Creating container ${containerName}...`);
         const container = await docker.createContainer({
             Image: IMAGE,
             name: containerName,
@@ -182,8 +183,13 @@ export class WarmPool {
             commitSha: job?.headSha
         });
 
+        console.log(`[WarmPool] Starting container ${containerName} (${runnerId.substring(0, 12)})...`);
         await container.start();
-        console.log(`[WarmPool] Started runner ${containerName} (${runnerId.substring(0, 12)})`);
+        console.log(`[WarmPool] container.start() resolved for ${containerName}`);
+
+        if (job) {
+            await this.seedDTU(job);
+        }
 
 
         // Attach listeners
@@ -368,6 +374,31 @@ export class WarmPool {
         });
       });
       console.log(`[WarmPool] Pull complete.`);
+    }
+  }
+
+  private async seedDTU(job: any) {
+    console.log(`[WarmPool] seedDTU called for job ${job.deliveryId}`);
+    try {
+        const dtuUrl = config.GITHUB_API_URL;
+        console.log(`[WarmPool] Sending POST to ${dtuUrl}/_dtu/seed...`);
+        const response = await fetch(`${dtuUrl}/_dtu/seed`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                id: job.githubJobId || "1",
+                name: "local-job",
+                status: "queued",
+                ...job
+            }),
+        });
+        if (!response.ok) {
+            console.error(`[WarmPool] Failed to seed DTU: ${response.status}`);
+        } else {
+            console.log(`[WarmPool] DTU seeded successfully.`);
+        }
+    } catch (e: any) {
+        console.error(`[WarmPool] Error seeding DTU: ${e.message}`);
     }
   }
 
