@@ -4,20 +4,10 @@ import fs from "fs";
 import { execSync } from "child_process";
 import { config } from "./config.js";
 import { Job } from "./types.js";
+import { getTimestamp, ensureLogDirs, finalizeLog, IN_PROGRESS_LOGS_DIR } from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
-const LOGS_DIR = path.resolve(process.cwd(), "_", "logs");
-
-function getTimestamp(): string {
-  const now = new Date();
-  const YYYY = now.getFullYear();
-  const MM = String(now.getMonth() + 1).padStart(2, "0");
-  const DD = String(now.getDate()).padStart(2, "0");
-  const HH = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${YYYY}${MM}${DD}-${HH}${mm}`;
-}
 
 export async function executeLocalJob(job: Job): Promise<void> {
   console.log(`[LocalJob] Starting local execution for job: ${job.deliveryId}`);
@@ -144,8 +134,8 @@ esac
 
   // 5. Stream Logs
   const timestamp = getTimestamp();
-  const logPath = path.join(LOGS_DIR, `${timestamp}-${containerName}.log`);
-  if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+  ensureLogDirs();
+  const logPath = path.join(IN_PROGRESS_LOGS_DIR, `${timestamp}-${containerName}.log`);
   const logStream = fs.createWriteStream(logPath);
 
   const stream = await container.logs({
@@ -158,9 +148,11 @@ esac
   stream.pipe(logStream);
 
   // 6. Wait for Exit
+  let exitCode = 1;
   try {
     const waitResult = await container.wait();
-    console.log(`[LocalJob] Runner exited with code ${waitResult.StatusCode}`);
+    exitCode = waitResult.StatusCode;
+    console.log(`[LocalJob] Runner exited with code ${exitCode}`);
   } finally {
     // 7. Cleanup
     console.log(`[LocalJob] Cleaning up...`);
@@ -171,7 +163,10 @@ esac
     if ("destroy" in stream && typeof stream.destroy === "function") {
       (stream as any).destroy();
     }
-    logStream.end();
+    logStream.end(() => {
+      const finalPath = finalizeLog(logPath, exitCode);
+      console.log(`[LocalJob] Log finalized: ${finalPath}`);
+    });
 
     if (fs.existsSync(workspaceDir)) fs.rmSync(workspaceDir, { recursive: true, force: true });
     if (fs.existsSync(shimsDir)) fs.rmSync(shimsDir, { recursive: true, force: true });

@@ -3,23 +3,12 @@ import path from "path";
 import fs from "fs";
 import { pollJobs, fetchRegistrationToken } from "./bridge.js";
 import { config } from "./config.js";
+import { getTimestamp, ensureLogDirs, finalizeLog, PENDING_LOGS_DIR, IN_PROGRESS_LOGS_DIR } from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
 const CONTAINER_PREFIX = "oa-runner-";
 const MAX_RUNNERS = 10;
-const LOGS_DIR = path.resolve(process.cwd(), "_", "logs");
-const PENDING_LOGS_DIR = path.join(LOGS_DIR, "pending");
-
-function getTimestamp(): string {
-  const now = new Date();
-  const YYYY = now.getFullYear();
-  const MM = String(now.getMonth() + 1).padStart(2, "0");
-  const DD = String(now.getDate()).padStart(2, "0");
-  const HH = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${YYYY}${MM}${DD}-${HH}${mm}`;
-}
 
 interface RunnerState {
   id: string; // Container ID
@@ -165,10 +154,8 @@ export class WarmPool {
 
         const runnerId = container.id;
         const timestamp = getTimestamp();
+        ensureLogDirs();
         const logPath = path.join(PENDING_LOGS_DIR, `${timestamp}-${containerName}.log`);
-
-        // Ensure pending logs dir exists
-        if (!fs.existsSync(PENDING_LOGS_DIR)) fs.mkdirSync(PENDING_LOGS_DIR, { recursive: true });
 
         const logStream = fs.createWriteStream(logPath, { flags: 'a' });
         
@@ -276,26 +263,20 @@ export class WarmPool {
       runner.type = "active";
 
       // Move log file if commitSha is known or becomes known
-      if (runner.commitSha) {
-          const commitDir = path.join(LOGS_DIR, runner.commitSha);
-          if (!fs.existsSync(commitDir)) fs.mkdirSync(commitDir, { recursive: true });
-          
-          const newLogPath = path.join(commitDir, `${runner.timestamp}-${runner.name}.log`);
-          
-          // Re-pipe strategy: close current stream, move file, reopen stream
-          runner.logStream.end(() => {
-              try {
-                  fs.renameSync(runner.logPath, newLogPath);
-                  runner.logPath = newLogPath;
-                  runner.logStream = fs.createWriteStream(newLogPath, { flags: 'a' });
-              } catch (err) {
-                  console.error(`[WarmPool] Failed to move log file:`, err);
-                  // Keep writing to old path if move fails? 
-                  // For now, we'll just try to reopen at the old path to avoid losing logs
-                  runner.logStream = fs.createWriteStream(runner.logPath, { flags: 'a' });
-              }
-          });
-      }
+      const newLogPath = path.join(IN_PROGRESS_LOGS_DIR, `${runner.timestamp}-${runner.name}.log`);
+      
+      // Re-pipe strategy: close current stream, move file, reopen stream
+      runner.logStream.end(() => {
+          try {
+              fs.renameSync(runner.logPath, newLogPath);
+              runner.logPath = newLogPath;
+              runner.logStream = fs.createWriteStream(newLogPath, { flags: 'a' });
+          } catch (err) {
+              console.error(`[WarmPool] Failed to move log file to in-progress:`, err);
+              // Reopen at old path to avoid losing logs if move fails
+              runner.logStream = fs.createWriteStream(runner.logPath, { flags: 'a' });
+          }
+      });
 
       // Trigger reconcile to spawn a new warm runner
       this.reconcile();
@@ -309,13 +290,8 @@ export class WarmPool {
         
         // Finalize log file
         runner.logStream.end(() => {
-            const finalPath = runner.logPath.replace(/\.log$/, `.${exitCode}.log`);
-            try {
-                fs.renameSync(runner.logPath, finalPath);
-                console.log(`[WarmPool] Log finalized: ${finalPath}`);
-            } catch (err) {
-                console.error(`[WarmPool] Failed to finalize log file:`, err);
-            }
+            const finalPath = finalizeLog(runner.logPath, exitCode, runner.commitSha);
+            console.log(`[WarmPool] Log finalized: ${finalPath}`);
         });
 
         this.runners.delete(runnerId);

@@ -1,8 +1,9 @@
 import fs from 'fs';
 import crypto from 'crypto';
 import { parseWorkflow, NoOperationTraceWriter, convertWorkflowTemplate } from '@actions/workflow-parser';
+import { minimatch } from 'minimatch';
 
-export async function parseWorkflowSteps(filePath: string, jobName: string) {
+export async function getWorkflowTemplate(filePath: string) {
   const content = fs.readFileSync(filePath, 'utf8');
   const result = parseWorkflow({ name: filePath, content }, new NoOperationTraceWriter());
   
@@ -10,7 +11,11 @@ export async function parseWorkflowSteps(filePath: string, jobName: string) {
     throw new Error(`Failed to parse workflow: ${result.context.errors.getErrors().map(e => e.message).join(', ')}`);
   }
 
-  const template = await convertWorkflowTemplate(result.context, result.value);
+  return await convertWorkflowTemplate(result.context, result.value);
+}
+
+export async function parseWorkflowSteps(filePath: string, jobName: string) {
+  const template = await getWorkflowTemplate(filePath);
   
   // Find the job by ID or Name
   const job = template.jobs.find(j => {
@@ -57,4 +62,53 @@ export async function parseWorkflowSteps(filePath: string, jobName: string) {
     }
     return null;
   }).filter(Boolean);
+}
+
+export function isWorkflowRelevant(template: any, branch: string) {
+  const events = template.events;
+  if (!events) return false;
+
+  // 1. Check pull_request
+  if (events.pull_request) {
+    const pr = events.pull_request;
+    // If pull_request has branch filters, check if 'main' (target) is included.
+    // This simulates a PR being raised against main.
+    if (!pr.branches && !pr['branches-ignore']) {
+      return true; // No filters, matches all PRs
+    }
+    
+    if (pr.branches) {
+      if (pr.branches.some((pattern: string) => minimatch('main', pattern))) {
+        return true;
+      }
+    }
+    
+    if (pr['branches-ignore']) {
+      if (!pr['branches-ignore'].some((pattern: string) => minimatch('main', pattern))) {
+        return true;
+      }
+    }
+  }
+
+  // 2. Check push
+  if (events.push) {
+    const push = events.push;
+    if (!push.branches && !push['branches-ignore']) {
+      return true; // No filters, matches all pushes
+    }
+
+    if (push.branches) {
+      if (push.branches.some((pattern: string) => minimatch(branch, pattern))) {
+        return true;
+      }
+    }
+
+    if (push['branches-ignore']) {
+      if (!push['branches-ignore'].some((pattern: string) => minimatch(branch, pattern))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }

@@ -5,21 +5,10 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fetchRegistrationToken } from "./bridge.js";
+import { getTimestamp, ensureLogDirs, finalizeLog, IN_PROGRESS_LOGS_DIR } from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/catthehacker/ubuntu:act-latest";
-const LOGS_DIR = path.resolve(process.cwd(), "_", "logs");
-const PENDING_LOGS_DIR = path.join(LOGS_DIR, "pending");
-
-function getTimestamp(): string {
-  const now = new Date();
-  const YYYY = now.getFullYear();
-  const MM = String(now.getMonth() + 1).padStart(2, "0");
-  const DD = String(now.getDate()).padStart(2, "0");
-  const HH = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${YYYY}${MM}${DD}-${HH}${mm}`;
-}
 
 function findRunnerPath(): string | null {
   const searchPaths = [
@@ -137,11 +126,9 @@ export async function ensureImageExists(): Promise<void> {
 export async function executeJob(job: Job): Promise<void> {
   const timestamp = getTimestamp();
   const runnerName = `executor-${job.deliveryId.substring(0, 8)}`;
-  let logPath = path.join(PENDING_LOGS_DIR, `${timestamp}-${runnerName}.log`);
+  ensureLogDirs();
+  let logPath = path.join(IN_PROGRESS_LOGS_DIR, `${timestamp}-${runnerName}.log`);
   
-  // Ensure pending logs dir exists
-  if (!fs.existsSync(PENDING_LOGS_DIR)) fs.mkdirSync(PENDING_LOGS_DIR, { recursive: true });
-
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
   console.log(`[Executor] Processing job: ${job.deliveryId}`);
@@ -178,25 +165,6 @@ export async function executeJob(job: Job): Promise<void> {
     await container.start();
     console.log(`[Executor] Container started.`);
 
-    // Identified commit SHA (usually in job.headSha or repository info if available)
-    const commitSha = job.headSha || "unknown";
-    if (commitSha !== "unknown") {
-        const commitDir = path.join(LOGS_DIR, commitSha);
-        if (!fs.existsSync(commitDir)) fs.mkdirSync(commitDir, { recursive: true });
-        
-        const newLogPath = path.join(commitDir, `${timestamp}-${runnerName}.log`);
-        logStream.end(() => {
-            try {
-                fs.renameSync(logPath, newLogPath);
-                logPath = newLogPath;
-                // Note: This is an async execution, we'd need to reopen the stream if we were tailing logs.
-                // In this executor, we get logs at the end. 
-            } catch (err) {
-                console.error(`[Executor] Failed to move log file:`, err);
-            }
-        });
-    }
-
     // 4. Wait for completion
     const waitResult = await container.wait();
     const exitCode = waitResult.StatusCode;
@@ -213,8 +181,8 @@ export async function executeJob(job: Job): Promise<void> {
     fs.appendFileSync(logPath, logBuffer.toString());
 
     // Finalize filename
-    const finalPath = logPath.replace(/\.log$/, `.${exitCode}.log`);
-    fs.renameSync(logPath, finalPath);
+    const commitSha = job.headSha || "unknown";
+    const finalPath = finalizeLog(logPath, exitCode, commitSha);
     console.log(`[Executor] Log finalized: ${finalPath}`);
 
     // 6. Cleanup
@@ -229,8 +197,9 @@ export async function executeJob(job: Job): Promise<void> {
   } catch (error: any) {
     console.error(`[Executor] Job failed:`, error.message);
     if (fs.existsSync(logPath)) {
-        const finalPath = logPath.replace(/\.log$/, `.1.log`);
-        fs.renameSync(logPath, finalPath);
+        const commitSha = job.headSha || "unknown";
+        const finalPath = finalizeLog(logPath, 1, commitSha);
+        console.log(`[Executor] Log finalized (failure): ${finalPath}`);
     }
     throw error;
   }
