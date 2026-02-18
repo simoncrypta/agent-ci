@@ -37,6 +37,7 @@ export async function generateGitHubAppJWT(): Promise<string> {
 }
 
 async function importPrivateKey(pem: string): Promise<CryptoKey> {
+  console.log("[Bridge] Importing private key...");
   // Remove PEM headers and whitespace
   const pemHeader = "-----BEGIN RSA PRIVATE KEY-----";
   const pemFooter = "-----END RSA PRIVATE KEY-----";
@@ -49,6 +50,12 @@ async function importPrivateKey(pem: string): Promise<CryptoKey> {
   } else if (pem.includes(pemHeaderPKCS8)) {
     base64Contents = pem.replace(pemHeaderPKCS8, "").replace(pemFooterPKCS8, "").replace(/\s/g, "");
   } else {
+    // Attempt to handle cases where newlines are escaped literals "\n"
+    const cleanedPem = pem.replace(/\\n/g, "\n"); 
+    if (cleanedPem.includes(pemHeader) || cleanedPem.includes(pemHeaderPKCS8)) {
+        console.log("[Bridge] Detected escaped newlines in private key, attempting to fix...");
+        return importPrivateKey(cleanedPem);
+    }
     throw new Error("Invalid Private Key format. Expected PKCS#1 or PKCS#8 PEM.");
   }
 

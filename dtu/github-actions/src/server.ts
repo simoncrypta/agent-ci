@@ -12,7 +12,7 @@ import { config } from './config.js';
 export const jobs = new Map<string, any>();
 export const sessions = new Map<string, any>();
 export const messageQueues = new Map<string, any[]>();
-export const pendingPolls = new Map<string, http.ServerResponse>();
+export const pendingPolls = new Map<string, { res: http.ServerResponse, baseUrl: string }>();
 
 // Clear state on start
 jobs.clear();
@@ -63,8 +63,8 @@ export const server = http.createServer((req, res) => {
           console.log(`[DTU] Seeded job: ${jobId}`);
           
           // Notify any pending polls
-          for (const [sessionId, res] of pendingPolls) {
-              console.log(`[DTU] Notifying session ${sessionId} of new job ${jobId}`);
+          for (const [sessionId, { res, baseUrl: runnerBaseUrl }] of pendingPolls) {
+              console.log(`[DTU] Notifying session ${sessionId} of new job ${jobId} (Wait URL: ${runnerBaseUrl})`);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
                   messageId: 1,
@@ -86,7 +86,7 @@ export const server = http.createServer((req, res) => {
                           Endpoints: [
                               {
                                   Name: "SystemVssConnection",
-                                  Url: baseUrl,
+                                  Url: runnerBaseUrl,
                                   Authorization: {
                                       Scheme: "OAuth",
                                       Parameters: {
@@ -279,10 +279,10 @@ export const server = http.createServer((req, res) => {
        // If there's already a pending poll for this session, close it
        const existing = pendingPolls.get(sessionId);
        if (existing) {
-           existing.writeHead(204);
-           existing.end();
+           existing.res.writeHead(204);
+           existing.res.end();
        }
-       pendingPolls.set(sessionId, res);
+       pendingPolls.set(sessionId, { res, baseUrl });
 
        // Check if we have any queued jobs to send immediately
        if (jobs.size > 0) {
@@ -319,7 +319,8 @@ export const server = http.createServer((req, res) => {
 
        // Long poll: Wait up to 20 seconds before returning empty
        const timeout = setTimeout(() => {
-         if (pendingPolls.get(sessionId) === res) {
+         const pending = pendingPolls.get(sessionId);
+         if (pending && pending.res === res) {
            pendingPolls.delete(sessionId);
            if (!res.writableEnded) {
              // Returning 204 No Content for timeout is often better for mocks
@@ -331,7 +332,8 @@ export const server = http.createServer((req, res) => {
 
        res.on('close', () => {
            clearTimeout(timeout);
-           if (pendingPolls.get(sessionId) === res) {
+           const pending = pendingPolls.get(sessionId);
+           if (pending && pending.res === res) {
                pendingPolls.delete(sessionId);
            }
        });
@@ -467,6 +469,33 @@ export const server = http.createServer((req, res) => {
     return;
   }
 
+  // 14. Job Request Update / Renewal Mock
+  if (method === 'PATCH' && url?.includes('/_apis/distributedtask/jobrequests')) {
+    console.log(`[DTU] Handling job request update/renewal: ${url}`);
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+       try {
+         const payload = JSON.parse(body || '{}');
+         // Update LockedUntil to keep the runner happy
+         if (!payload.lockedUntil) {
+            // If it's just a query param lock renewal, we might need to construct a response.
+            // But usually the runner sends the job request object.
+         }
+         // Always return a valid future date for lock
+         payload.lockedUntil = new Date(Date.now() + 60000).toISOString();
+         
+         res.writeHead(200, { 'Content-Type': 'application/json' });
+         res.end(JSON.stringify(payload));
+       } catch (e) {
+         console.error('[DTU] Error parsing job request update body', e);
+         res.writeHead(200, { 'Content-Type': 'application/json' });
+         res.end(JSON.stringify({ lockedUntil: new Date(Date.now() + 60000).toISOString() }));
+       }
+    });
+    return;
+  }
+
   // 8. Global OPTIONS Handler (for CORS/Capabilities + Resource Discovery)
   if (method === 'OPTIONS') {
     res.writeHead(200, {
@@ -586,7 +615,7 @@ export const server = http.createServer((req, res) => {
 });
 
 if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 'test') {
-  server.listen(config.DTU_PORT, () => {
-    console.log(`[DTU] Mock GitHub API server running at http://localhost:${config.DTU_PORT}`);
+  server.listen(config.DTU_PORT, '0.0.0.0', () => {
+    console.log(`[DTU] Mock GitHub API server running at http://0.0.0.0:${config.DTU_PORT}`);
   });
 }

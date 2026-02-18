@@ -1,8 +1,8 @@
 import Docker from "dockerode";
 import path from "path";
 import fs from "fs";
-import { pollJobs, fetchRegistrationToken } from "./bridge";
-import { config } from "./config";
+import { pollJobs, fetchRegistrationToken } from "./bridge.js";
+import { config } from "./config.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/actions/actions-runner:latest";

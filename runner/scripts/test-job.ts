@@ -1,17 +1,20 @@
-import { executeJob } from '../src/executor';
+import { executeLocalJob } from '../src/localJob';
 import { Job } from '../src/types';
 
 const job: Job = {
   deliveryId: 'test-job-' + Date.now(),
   eventType: 'workflow_job',
+  githubJobId: '123',
+  githubRepo: 'redwoodjs/opposite-actions',
+  githubToken: 'mock_token',
+  headSha: 'd6a273329b89417a27ba85bfc5004b6aadff0c13',
   env: {
     TEST_VAR: 'Hello form test script',
-    SECRET_VAR: 'TOP_SECRET_VALUE'
   },
   repository: {
-    name: 'test-repo',
-    owner: { login: 'test-user' }
+    name: 'opposite-actions',
+    owner: { login: 'redwoodjs' }
   }
 };
 
-executeJob(job).catch(console.error);
+executeLocalJob(job).catch(console.error);

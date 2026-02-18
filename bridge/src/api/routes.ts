@@ -257,8 +257,9 @@ async function handleRegistrationToken({ request }: { request: Request }): Promi
     console.log(`[Bridge] Fetching installation for ${fullRepo}...`);
     const installationId = await getInstallationIdForRepo(owner, repoName);
 
-    console.log(`[Bridge] Generating registration token for ${fullRepo}...`);
+    console.log(`[Bridge] Generating registration token for ${fullRepo} (Installation ID: ${installationId})...`);
     const token = await getRegistrationToken(installationId, fullRepo);
+    console.log(`[Bridge] Registration token generated successfully for ${fullRepo}.`);
 
     return new Response(JSON.stringify({ token }), {
       headers: { "Content-Type": "application/json" },
