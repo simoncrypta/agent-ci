@@ -99,12 +99,14 @@ function resolveRepoInfo(repoRoot: string) {
   return githubRepo;
 }
 
-function resolveHeadSha(repoRoot: string, sha?: string) {
-  const ref = sha || "HEAD";
+function resolveHeadSha(repoRoot: string, sha: string) {
   try {
-    return { headSha: execSync(`git rev-parse ${ref}`, { cwd: repoRoot }).toString().trim(), ref };
+    return {
+      headSha: execSync(`git rev-parse ${sha}`, { cwd: repoRoot }).toString().trim(),
+      shaRef: sha,
+    };
   } catch {
-    throw new Error(`Failed to resolve ref: ${ref}`);
+    throw new Error(`Failed to resolve ref: ${sha}`);
   }
 }
 
@@ -123,7 +125,9 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
 
   try {
     const repoRoot = resolveRepoRoot();
-    const { headSha, ref } = resolveHeadSha(repoRoot, sha);
+    const { headSha, shaRef } = sha
+      ? resolveHeadSha(repoRoot, sha)
+      : { headSha: undefined, shaRef: undefined };
     const githubRepo = resolveRepoInfo(repoRoot);
     const [owner, name] = githubRepo.split("/");
 
@@ -192,7 +196,7 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
       githubRepo: githubRepo,
       githubToken: "mock_token",
       headSha: headSha,
-      shaRef: ref,
+      shaRef: shaRef,
       env: {
         OA_LOCAL: "true",
       },
@@ -218,7 +222,9 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
 
   try {
     const repoRoot = resolveRepoRoot();
-    const { headSha, ref } = resolveHeadSha(repoRoot, options.sha);
+    const { headSha, shaRef } = options.sha
+      ? resolveHeadSha(repoRoot, options.sha)
+      : { headSha: undefined, shaRef: undefined };
     const githubRepo = resolveRepoInfo(repoRoot);
     const [owner, name] = githubRepo.split("/");
     const branch = options.branch || getCurrentBranch(repoRoot);
@@ -270,7 +276,7 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
         githubRepo: githubRepo,
         githubToken: "mock_token",
         headSha: headSha,
-        shaRef: ref,
+        shaRef: shaRef,
         env: {
           OA_LOCAL: "true",
         },

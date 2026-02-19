@@ -165,10 +165,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
   };
 
   // ── Compact job header ──────────────────────────────────────────────────────
-  const sha = (job.headSha || "HEAD").substring(0, 7);
-  const ref = job.shaRef || "HEAD";
-  emit(`\n  Using SHA: ${job.headSha || "HEAD"} (${ref}) · ${containerName}`);
-  emit(`\n  ┌─ Job: ${job.githubRepo} (${sha})`);
+  const shortSha = job.headSha ? ` (${job.headSha.substring(0, 7)})` : "";
+  emit(
+    `\n  Using: ${job.headSha ? `SHA ${job.headSha} (${job.shaRef ?? "HEAD"})` : "working directory (dirty files included)"} · ${containerName}`,
+  );
+  emit(`\n  ┌─ Job: ${job.githubRepo}${shortSha}`);
   if (job.steps?.length) {
     const names = job.steps.map((s: any) => s.Name || s.name).join(", ");
     emit(`  │  Steps: ${names}`);
@@ -206,9 +207,18 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // 4. Prepare workspace (checkout emulation)
   try {
     if (job.headSha && job.headSha !== "HEAD") {
+      // Specific SHA requested — use git archive (clean snapshot)
       execSync(`git archive ${job.headSha} | tar -x -C ${workspaceDir}`, { stdio: "pipe" });
     } else {
-      execSync(`git checkout-index -a -f --prefix=${workspaceDir}/`, { stdio: "pipe" });
+      // Default: copy the working directory as-is, including dirty/untracked files.
+      // rsync excludes .git to keep the workspace clean for the runner.
+      execSync(
+        // Let git enumerate exactly which files to copy: tracked files + untracked
+        // files that aren't gitignored. This honours all gitignore rules (global,
+        // nested, negations, .git/info/exclude) because git itself does the filtering.
+        `git ls-files --cached --others --exclude-standard -z | rsync -a --files-from=- --from0 ${process.cwd()}/ ${workspaceDir}/`,
+        { stdio: "pipe", shell: "/bin/sh" },
+      );
     }
   } catch (err) {
     if (debug) {
