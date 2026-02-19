@@ -26,21 +26,46 @@ describe("Runner E2E Regressions", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("DTU seeded successfully");
-    expect(result.stdout).toContain("Hello from E2E");
     expect(result.stdout).toContain("Runner exited with code 0");
+
+    // Check DTU for the captured logs
+    const dump = await (await fetch(`http://localhost:8990/_dtu/dump`)).json();
+    const allLogs = Object.values(dump.logs).flat().join("\n");
+    expect(allLogs).toContain("Hello from E2E");
   }, 60000);
 
-  it("should place logs in a numerical directory", async () => {
-    const logsDir = path.resolve(process.cwd(), "_", "logs");
-    if (fs.existsSync(logsDir)) {
-      const initialDirs = fs.readdirSync(logsDir).filter((d) => d.startsWith("oa-runner-"));
+  it("should place logs in a flat file structure", async () => {
+    // We now use the unified logger which places in-progress logs in _/logs/in-progress
+    // and finalized logs in _/logs/completed
+    const logsDir = path.resolve(process.cwd(), "_", "logs", "completed");
 
-      const jobId = "log-test-" + Date.now();
-      await harness.seedJob({ id: jobId, name: "log-test" });
-      await harness.runRunner(jobId);
+    const countLogFiles = (dir: string) => {
+      if (!fs.existsSync(dir)) {
+        return 0;
+      }
+      // Recursively find all files ending in .log
+      const scanDir = (d: string): string[] => {
+        const entries = fs.readdirSync(d, { withFileTypes: true });
+        const files = entries
+          .filter((e) => e.isFile() && e.name.endsWith(".log"))
+          .map((e) => path.join(d, e.name));
+        const subdirs = entries.filter((e) => e.isDirectory());
+        for (const sd of subdirs) {
+          files.push(...scanDir(path.join(d, sd.name)));
+        }
+        return files;
+      };
 
-      const finalDirs = fs.readdirSync(logsDir).filter((d) => d.startsWith("oa-runner-"));
-      expect(finalDirs.length).toBeGreaterThan(initialDirs.length);
-    }
+      return scanDir(dir).filter((f) => path.basename(f).startsWith("oa-runner-")).length;
+    };
+
+    const initialCount = countLogFiles(logsDir);
+
+    const jobId = "log-test-" + Date.now();
+    await harness.seedJob({ id: jobId, name: "log-test" });
+    await harness.runRunner(jobId);
+
+    const finalCount = countLogFiles(logsDir);
+    expect(finalCount).toBeGreaterThan(initialCount);
   }, 60000);
 });

@@ -1,3 +1,6 @@
 {
-  "extends": ["@nkzw/oxlint-config"]
+  "extends": ["@nkzw/oxlint-config"],
+  "rules": {
+    "curly": "error"
+  }
 }

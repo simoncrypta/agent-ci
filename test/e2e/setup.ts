@@ -7,11 +7,11 @@ const PROJECT_ROOT = path.resolve(__dirname, "../../");
 
 export class E2ETestHarness {
   private dtuProcess?: ResultPromise;
-  private dtuPort = 8910;
+  private dtuPort = 8990;
 
   async startDTU() {
     console.log("[E2E] Starting DTU...");
-    this.dtuProcess = execa("tsx", ["dtu-github-actions/src/server.ts"], {
+    this.dtuProcess = execa("pnpm", ["tsx", "dtu-github-actions/src/server.ts"], {
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,
@@ -19,7 +19,7 @@ export class E2ETestHarness {
         BRIDGE_URL: "http://localhost:8911",
         GITHUB_WEBHOOK_SECRET: "e2e-secret",
       },
-      // stdio: 'inherit' // Useful for debugging
+      stdio: "inherit", // Useful for debugging
     });
 
     // Wait for DTU to be ready
@@ -27,18 +27,22 @@ export class E2ETestHarness {
     while (attempts < 10) {
       try {
         const res = await fetch(`http://localhost:${this.dtuPort}/`);
-        if (res.ok) break;
+        if (res.ok) {
+          break;
+        }
       } catch {}
       await new Promise((r) => setTimeout(r, 500));
       attempts++;
     }
-    if (attempts === 10) throw new Error("DTU failed to start");
+    if (attempts === 10) {
+      throw new Error("DTU failed to start");
+    }
     console.log("[E2E] DTU ready.");
   }
 
   async stopDTU() {
     if (this.dtuProcess) {
-      this.dtuProcess.kill();
+      this.dtuProcess?.kill();
       await this.dtuProcess.catch(() => {});
     }
   }
@@ -49,16 +53,25 @@ export class E2ETestHarness {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(job),
     });
-    if (!res.ok) throw new Error(`Failed to seed job: ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`Failed to seed job: ${res.status}`);
+    }
     return await res.json();
   }
 
   async runRunner(jobId: string) {
     console.log(`[E2E] Running runner for job ${jobId}...`);
-    // We use the CLI to run the job
-    return execa(
-      "tsx",
-      ["runner/src/cli.ts", "run", "--workflow", ".github/workflows/e2e.yml", "--task", "test"],
+    const proc = execa(
+      "pnpm",
+      [
+        "tsx",
+        "runner/src/cli.ts",
+        "run",
+        "--workflow",
+        ".github/workflows/smoke-test.yml",
+        "--task",
+        "test",
+      ],
       {
         cwd: PROJECT_ROOT,
         env: {
@@ -71,5 +84,22 @@ export class E2ETestHarness {
         },
       },
     );
+
+    // Debug: Pipe output
+    proc.stdout?.pipe(process.stdout);
+    proc.stderr?.pipe(process.stderr);
+
+    try {
+      return await proc;
+    } catch (e: any) {
+      console.error(`[E2E] Runner failed: ${e.message}`);
+      if (e.stdout) {
+        console.error(`[E2E] Runner stdout: ${e.stdout}`);
+      }
+      if (e.stderr) {
+        console.error(`[E2E] Runner stderr: ${e.stderr}`);
+      }
+      throw e;
+    }
   }
 }

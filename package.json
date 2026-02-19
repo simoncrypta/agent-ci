@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently --kill-others --names \"GitHub,Bridge,Runner\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter runner dev\"",
-    "test:e2e": "vitest run test/e2e",
+    "test:e2e": "rm -rf _ && vitest run test/e2e",
     "check": "npm-run-all --parallel typecheck lint format:check",
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
     "typecheck": "pnpm -r exec tsgo",

@@ -102,9 +102,7 @@ function resolveRepoInfo(repoRoot: string) {
 function resolveHeadSha(repoRoot: string, sha?: string) {
   const ref = sha || "HEAD";
   try {
-    const headSha = execSync(`git rev-parse ${ref}`, { cwd: repoRoot }).toString().trim();
-    console.log(`[OA] Using SHA: ${headSha} (${ref})`);
-    return headSha;
+    return { headSha: execSync(`git rev-parse ${ref}`, { cwd: repoRoot }).toString().trim(), ref };
   } catch {
     throw new Error(`Failed to resolve ref: ${ref}`);
   }
@@ -123,15 +121,11 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
   let workflow = options.workflow;
   let taskName = options.taskName;
 
-  console.log("[OA] Starting local CI simulation...");
-
   try {
     const repoRoot = resolveRepoRoot();
-    const headSha = resolveHeadSha(repoRoot, sha);
+    const { headSha, ref } = resolveHeadSha(repoRoot, sha);
     const githubRepo = resolveRepoInfo(repoRoot);
     const [owner, name] = githubRepo.split("/");
-
-    console.log(`[OA] Repo: ${githubRepo} (Root: ${repoRoot})`);
 
     // 4. Resolve Workflow
     const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
@@ -188,7 +182,6 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
       process.exit(1);
     }
 
-    console.log(`[OA] Parsing workflow: ${path.basename(workflowPath)} (task: ${taskName})`);
     const steps = await parseWorkflowSteps(workflowPath, taskName);
 
     // 6. Construct Job
@@ -199,6 +192,7 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
       githubRepo: githubRepo,
       githubToken: "mock_token",
       headSha: headSha,
+      shaRef: ref,
       env: {
         OA_LOCAL: "true",
       },
@@ -224,7 +218,7 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
 
   try {
     const repoRoot = resolveRepoRoot();
-    const headSha = resolveHeadSha(repoRoot, options.sha);
+    const { headSha, ref } = resolveHeadSha(repoRoot, options.sha);
     const githubRepo = resolveRepoInfo(repoRoot);
     const [owner, name] = githubRepo.split("/");
     const branch = options.branch || getCurrentBranch(repoRoot);
@@ -276,6 +270,7 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
         githubRepo: githubRepo,
         githubToken: "mock_token",
         headSha: headSha,
+        shaRef: ref,
         env: {
           OA_LOCAL: "true",
         },

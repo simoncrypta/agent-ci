@@ -1,48 +1,53 @@
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 
-export const LOGS_DIR = path.resolve(process.cwd(), "_", "logs");
-export const PENDING_LOGS_DIR = path.join(LOGS_DIR, "pending");
-export const IN_PROGRESS_LOGS_DIR = path.join(LOGS_DIR, "in-progress");
-export const COMPLETED_LOGS_DIR = path.join(LOGS_DIR, "completed");
-export const DEBUG_LOGS_DIR = path.join(LOGS_DIR, "debug");
-
-export function getTimestamp(): string {
-  const now = new Date();
-  const YYYY = now.getFullYear();
-  const MM = String(now.getMonth() + 1).padStart(2, "0");
-  const DD = String(now.getDate()).padStart(2, "0");
-  const HH = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${YYYY}${MM}${DD}-${HH}${mm}`;
-}
+// Pinned to the runner package root regardless of cwd
+const RUNNER_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..");
+export const LOGS_DIR = path.join(RUNNER_ROOT, "_", "logs");
 
 export function ensureLogDirs(): void {
-  if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
-  if (!fs.existsSync(PENDING_LOGS_DIR)) fs.mkdirSync(PENDING_LOGS_DIR, { recursive: true });
-  if (!fs.existsSync(IN_PROGRESS_LOGS_DIR)) fs.mkdirSync(IN_PROGRESS_LOGS_DIR, { recursive: true });
-  if (!fs.existsSync(COMPLETED_LOGS_DIR)) fs.mkdirSync(COMPLETED_LOGS_DIR, { recursive: true });
-  if (!fs.existsSync(DEBUG_LOGS_DIR)) fs.mkdirSync(DEBUG_LOGS_DIR, { recursive: true });
+  fs.mkdirSync(LOGS_DIR, { recursive: true });
 }
 
-export function finalizeLog(logPath: string, exitCode: number, commitSha?: string): string {
-  ensureLogDirs(); // Just in case
-  const basename = path.basename(logPath, ".log"); // e.g. "20260218-1821-runner"
-  const finalFilename = `${basename}-${exitCode}.log`;
-
-  let targetDir = COMPLETED_LOGS_DIR;
-  if (commitSha && commitSha !== "unknown") {
-    targetDir = path.join(COMPLETED_LOGS_DIR, commitSha);
-    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+export function getNextLogNum(prefix: string): number {
+  if (!fs.existsSync(LOGS_DIR)) {
+    return 1;
   }
 
-  const finalPath = path.join(targetDir, finalFilename);
+  const items = fs.readdirSync(LOGS_DIR, { withFileTypes: true });
+  const nums = items
+    .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
+    .map((item) => {
+      const match = item.name.match(/-(\d+)$/);
+      return match ? parseInt(match[1], 10) : 0;
+    });
 
-  try {
-    fs.renameSync(logPath, finalPath);
-    return finalPath;
-  } catch (err) {
-    console.error(`[Logger] Failed to finalize log file:`, err);
-    return logPath;
-  }
+  return nums.length > 0 ? Math.max(...nums) + 1 : 1;
+}
+
+export function createLogContext(prefix: string) {
+  ensureLogDirs();
+  const num = getNextLogNum(prefix);
+  const name = `${prefix}-${num}`;
+  const logDir = path.join(LOGS_DIR, name);
+  fs.mkdirSync(logDir, { recursive: true });
+
+  return {
+    num,
+    name,
+    logDir,
+    outputLogPath: path.join(logDir, "output.log"),
+    debugLogPath: path.join(logDir, "debug.log"),
+  };
+}
+
+export function finalizeLog(
+  logPath: string,
+  _exitCode: number,
+  _commitSha?: string,
+  _preferredName?: string,
+): string {
+  // Log file stays in place; just return the path as-is.
+  return logPath;
 }

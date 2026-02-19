@@ -34,7 +34,9 @@ async function request(method: string, path: string, body?: any) {
     );
 
     req.on("error", reject);
-    if (body) req.write(JSON.stringify(body));
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
     req.end();
   });
 }

@@ -28,7 +28,9 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
 
   // Find the job by ID or Name
   const job = template.jobs.find((j) => {
-    if (j.type !== "job") return false;
+    if (j.type !== "job") {
+      return false;
+    }
     return j.id.toString() === taskName || (j.name && j.name.toString() === taskName);
   });
 
@@ -99,7 +101,9 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
 
 export function isWorkflowRelevant(template: any, branch: string) {
   const events = template.events;
-  if (!events) return false;
+  if (!events) {
+    return false;
+  }
 
   // 1. Check pull_request
   if (events.pull_request) {

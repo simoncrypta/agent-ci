@@ -46,7 +46,9 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
   // 1. Validate Secret & Signature
   const body = await request.text();
   const isValid = await verifySignature(SECRETS.GITHUB_WEBHOOK_SECRET, signature, body);
-  if (!isValid) return new Response("Invalid signature", { status: 401 });
+  if (!isValid) {
+    return new Response("Invalid signature", { status: 401 });
+  }
 
   // 2. Filter events
   if (eventType !== "workflow_job") {
@@ -285,11 +287,15 @@ async function verifySignature(
   header: string | null,
   payload: string,
 ): Promise<boolean> {
-  if (!secret || !header) return false;
+  if (!secret || !header) {
+    return false;
+  }
   const parts = header.split("=");
   const sigHex = parts[1];
 
-  if (!sigHex) return false;
+  if (!sigHex) {
+    return false;
+  }
 
   const algorithm = { name: "HMAC", hash: "SHA-256" };
   const key = await crypto.subtle.importKey(

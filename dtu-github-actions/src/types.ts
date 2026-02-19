@@ -18,7 +18,12 @@ export interface JobVariable {
 
 export interface ContextDataValue {
   t: number;
-  v: any;
+  s?: string;
+  b?: boolean;
+  n?: number;
+  a?: ContextDataValue[];
+  d?: ContextDataItem[];
+  v?: any; // Re-add v for fallback
 }
 
 export interface ContextDataItem {
@@ -27,10 +32,7 @@ export interface ContextDataItem {
 }
 
 export interface ContextData {
-  [key: string]: {
-    t: number;
-    v: ContextDataItem[];
-  };
+  [key: string]: ContextDataValue;
 }
 
 export interface Endpoint {
@@ -105,7 +107,7 @@ export interface PipelineAgentJobRequest {
   };
   Actions: any[];
   MaskHints: any[];
-  EnvironmentVariables: { [key: string]: string };
+  EnvironmentVariables: any[];
 }
 
 export interface MessageResponse {

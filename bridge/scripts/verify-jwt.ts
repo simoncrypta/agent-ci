@@ -21,8 +21,12 @@ async function testJWT() {
     console.log("Header:", JSON.stringify(header, null, 2));
     console.log("Payload:", JSON.stringify(payload, null, 2));
 
-    if (header.alg !== "RS256") throw new Error("Invalid algorithm");
-    if (payload.iss !== "123456") throw new Error("Invalid issuer");
+    if (header.alg !== "RS256") {
+      throw new Error("Invalid algorithm");
+    }
+    if (payload.iss !== "123456") {
+      throw new Error("Invalid issuer");
+    }
 
     console.log("JWT Structure looks sound!");
   } catch (error) {

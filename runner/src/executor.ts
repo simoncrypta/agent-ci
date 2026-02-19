@@ -5,7 +5,7 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fetchRegistrationToken } from "./bridge.js";
-import { getTimestamp, ensureLogDirs, finalizeLog, IN_PROGRESS_LOGS_DIR } from "./logger.js";
+import { createLogContext, finalizeLog } from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/catthehacker/ubuntu:act-latest";
@@ -118,10 +118,15 @@ export async function ensureImageExists(): Promise<void> {
     console.log(`[Executor] Pulling image ${IMAGE}...`);
     await new Promise<void>((resolve, reject) => {
       docker.pull(IMAGE, (err: any, stream: any) => {
-        if (err) return reject(err);
+        if (err) {
+          return reject(err);
+        }
         docker.modem.followProgress(stream, (err: any) => {
-          if (err) reject(err);
-          else resolve();
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
         });
       });
     });
@@ -132,12 +137,9 @@ export async function ensureImageExists(): Promise<void> {
 }
 
 export async function executeJob(job: Job): Promise<void> {
-  const timestamp = getTimestamp();
-  const runnerName = `executor-${job.deliveryId.substring(0, 8)}`;
-  ensureLogDirs();
-  let logPath = path.join(IN_PROGRESS_LOGS_DIR, `${timestamp}-${runnerName}.log`);
+  const { name: runnerName, outputLogPath } = createLogContext("executor");
 
-  const _logStream = fs.createWriteStream(logPath, { flags: "a" });
+  const _logStream = fs.createWriteStream(outputLogPath, { flags: "a" });
 
   console.log(`[Executor] Processing job: ${job.deliveryId}`);
 
@@ -186,11 +188,11 @@ export async function executeJob(job: Job): Promise<void> {
     });
 
     // Write everything to the log file
-    fs.appendFileSync(logPath, logBuffer.toString());
+    fs.appendFileSync(outputLogPath, logBuffer.toString());
 
     // Finalize filename
     const commitSha = job.headSha || "unknown";
-    const finalPath = finalizeLog(logPath, exitCode, commitSha);
+    const finalPath = finalizeLog(outputLogPath, exitCode, commitSha, runnerName);
     console.log(`[Executor] Log finalized: ${finalPath}`);
 
     // 6. Cleanup
@@ -204,9 +206,9 @@ export async function executeJob(job: Job): Promise<void> {
     }
   } catch (error: any) {
     console.error(`[Executor] Job failed:`, error.message);
-    if (fs.existsSync(logPath)) {
+    if (fs.existsSync(outputLogPath)) {
       const commitSha = job.headSha || "unknown";
-      const finalPath = finalizeLog(logPath, 1, commitSha);
+      const finalPath = finalizeLog(outputLogPath, 1, commitSha, runnerName);
       console.log(`[Executor] Log finalized (failure): ${finalPath}`);
     }
     throw error;

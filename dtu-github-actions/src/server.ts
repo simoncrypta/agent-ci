@@ -40,18 +40,16 @@ timelines.clear();
 logs.clear();
 
 // Helper to convert JS objects to ContextData
-function toContextData(obj: any): {
-  t: number;
-  a?: any[];
-  d?: any[];
-  s?: string;
-  b?: boolean;
-  n?: number;
-  v?: any;
-} {
-  if (typeof obj === "string") return { t: 0, s: obj };
-  if (typeof obj === "boolean") return { t: 3, b: obj };
-  if (typeof obj === "number") return { t: 4, n: obj };
+function toContextData(obj: any): any {
+  if (typeof obj === "string") {
+    return { t: 0, s: obj };
+  }
+  if (typeof obj === "boolean") {
+    return { t: 3, b: obj };
+  }
+  if (typeof obj === "number") {
+    return { t: 4, n: obj };
+  }
 
   if (Array.isArray(obj)) {
     return {
@@ -67,30 +65,26 @@ function toContextData(obj: any): {
     };
   }
 
+  // Handle null or undefined
   return { t: 0, s: "" };
 }
 
 function createJobResponse(jobId: string, payload: any, baseUrl: string): MessageResponse {
   const mappedSteps: JobStep[] = (payload.steps || []).map((step: any, index: number) => {
     // If it's already in the correct format (from workflowParser), preserve it
-    if (step.Type && step.Reference) {
-      return {
-        ...step,
-        Id: step.Id || crypto.randomUUID(),
-      };
-    }
-
-    // Otherwise, try to map from generic seed
-    return {
-      Id: crypto.randomUUID(),
-      Name: step.name || `step-${index}`,
-      Type: "Action",
-      Reference: {
+    // But ensure mandatory fields for official runner are present
+    const s = {
+      Id: step.Id || step.id || crypto.randomUUID(),
+      Name: step.Name || step.DisplayName || step.name || `step-${index}`,
+      Type: step.Type || "Action",
+      Reference: step.Reference || {
         Type: "Script",
       },
-      Inputs: step.run ? { script: step.run } : {},
-      ContextData: {},
+      Inputs: step.Inputs || (step.run ? { script: step.run } : {}),
+      ContextData: step.ContextData || toContextData({}),
     };
+
+    return s;
   });
 
   const repoFullName = payload.repository?.full_name || "redwoodjs/opposite-actions";
@@ -116,16 +110,8 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
 
   // ... ContextData ...
 
-  const githubContext = {
+  const githubContext: any = {
     repository: repoFullName,
-    event: {
-      repository: {
-        full_name: repoFullName,
-        name: payload.repository?.name || "opposite-actions",
-        owner: { login: ownerName },
-      },
-      pull_request: null,
-    },
     actor: ownerName,
     sha: "0000000000000000000000000000000000000000",
     ref: "refs/heads/main",
@@ -138,8 +124,22 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
     job: "local-job",
   };
 
+  if (payload.pull_request) {
+    githubContext.event = {
+      pull_request: payload.pull_request,
+    };
+  } else {
+    githubContext.event = {
+      repository: {
+        full_name: repoFullName,
+        name: payload.repository?.name || "opposite-actions",
+        owner: { login: ownerName },
+      },
+    };
+  }
+
   const ContextData: ContextData = {
-    github: toContextData(githubContext) as any,
+    github: toContextData(githubContext),
   };
 
   const jobRequest: PipelineAgentJobRequest = {
@@ -207,7 +207,7 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
     },
     Actions: [],
     MaskHints: [],
-    EnvironmentVariables: {},
+    EnvironmentVariables: [],
   };
 
   console.log(`[DTU] DEBUG: Generating Job Response for JobId: ${crypto.randomUUID()}`);
@@ -226,6 +226,10 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
 export const server = http.createServer((req, res) => {
   const { method, headers } = req;
   let { url } = req;
+
+  if (method !== "GET" && method !== "OPTIONS" && url !== "/_dtu/seed") {
+    console.log(`[DTU] API-DEBUG: ${method} ${url}`);
+  }
 
   if (!url) {
     res.statusCode = 400;
@@ -248,10 +252,6 @@ export const server = http.createServer((req, res) => {
   }
 
   const baseUrl = `${protocol}://${host}`;
-
-  console.log(`[DTU] ${method} ${url} (Host: ${host})`);
-  console.log(`[DTU] Headers:`, JSON.stringify(headers, null, 2));
-  console.log(`[DTU] Constructed BaseURL: ${baseUrl}`);
 
   // 1. Internal Seeding Endpoint
   if (method === "POST" && url === "/_dtu/seed") {
@@ -628,13 +628,30 @@ export const server = http.createServer((req, res) => {
 
   // 19. Append Timeline Record Feed Mock
   if (method === "POST" && url?.includes("/feed")) {
-    // console.log(`[DTU] Append timeline record feed: ${url}`);
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
     });
     req.on("end", () => {
-      // Just acknowledge
+      try {
+        const payload = JSON.parse(body || "{}");
+        // The feed often contains lines in a specific format
+        // We'll just store the raw payload for inspection in dump
+        const timelineId = url.split("/timelines/")[1].split("/")[0];
+        const existing = logs.get(timelineId) || [];
+
+        if (Array.isArray(payload)) {
+          existing.push(...payload.map((p) => (typeof p === "string" ? p : JSON.stringify(p))));
+        } else if (payload.value && Array.isArray(payload.value)) {
+          existing.push(...payload.value.map((p: any) => p.message || JSON.stringify(p)));
+        } else {
+          existing.push(body);
+        }
+        logs.set(timelineId, existing);
+        console.log(`[DTU] Captured feed for ${timelineId}`);
+      } catch (e) {
+        console.warn("[DTU] Failed to parse feed body", e);
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ count: 0, value: [] }));
     });
@@ -755,11 +772,16 @@ export const server = http.createServer((req, res) => {
 
   // 15. Timeline Records Handler (Status Updates & Log Links)
   if (
-    method === "PATCH" &&
+    (method === "PATCH" || method === "POST") &&
     url?.includes("/_apis/distributedtask/timelines/") &&
-    url?.includes("/records")
+    url?.includes("/records") &&
+    !url?.includes("/feed")
   ) {
-    console.log(`[DTU] Handling timeline records update: ${url}`);
+    if (method === "POST") {
+      console.log(`[DTU] Creating timeline records: ${url}`);
+    } else {
+      console.log(`[DTU] Updating timeline records: ${url}`);
+    }
     const timelineId = url.split("/timelines/")[1].split("/")[0];
 
     let body = "";
@@ -773,7 +795,7 @@ export const server = http.createServer((req, res) => {
 
         let existing = timelines.get(timelineId) || [];
 
-        // Merge records
+        // Merge/Add records
         for (const record of newRecords) {
           const idx = existing.findIndex((r) => r.id === record.id);
           if (idx >= 0) {
@@ -784,7 +806,7 @@ export const server = http.createServer((req, res) => {
         }
 
         timelines.set(timelineId, existing);
-        console.log(`[DTU] Updated timeline ${timelineId} with ${newRecords.length} records`);
+        console.log(`[DTU] Processed timeline ${timelineId} with ${newRecords.length} records`);
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ count: existing.length, value: existing }));
@@ -807,7 +829,9 @@ export const server = http.createServer((req, res) => {
     console.log(`[DTU] Creating log: ${url}`);
     let logId = "";
     const match = url.match(/\/logs\/([^/?]+)/);
-    if (match) logId = match[1];
+    if (match) {
+      logId = match[1];
+    }
 
     let body = "";
     req.on("data", (chunk) => {
@@ -815,7 +839,9 @@ export const server = http.createServer((req, res) => {
     });
     req.on("end", () => {
       // Ensure map entry exists
-      if (!logs.has(logId)) logs.set(logId, []);
+      if (!logs.has(logId)) {
+        logs.set(logId, []);
+      }
 
       res.writeHead(201, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ id: logId, state: "Created" })); // Mock response
@@ -825,10 +851,11 @@ export const server = http.createServer((req, res) => {
 
   // 17. Log Line Appending Handler
   if (method === "POST" && url?.includes("/_apis/distributedtask/") && url?.includes("/lines")) {
-    // console.log(`[DTU] Appending log lines: ${url}`);
-    let logId = "";
+    let logId = "1";
     const match = url.match(/\/logs\/([^/?]+)/);
-    if (match) logId = match[1];
+    if (match) {
+      logId = match[1];
+    }
 
     let body = "";
     req.on("data", (chunk) => {
@@ -837,23 +864,43 @@ export const server = http.createServer((req, res) => {
     req.on("end", () => {
       try {
         const payload = JSON.parse(body || "{}");
-        const lines = (payload.value || []).map((l: any) => l.message || l); // Handle object or string lines
-
+        const lines = (payload.value || []).map((l: any) => l.message || l);
         const existing = logs.get(logId) || [];
         existing.push(...lines);
         logs.set(logId, existing);
-
-        // Console log for visibility in pnpm dev
-        lines.forEach((l: string) => console.log(`[Log-${logId.substring(0, 4)}] ${l}`));
-
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ count: existing.length, value: existing }));
+        console.log(`[DTU] Appened ${lines.length} lines to log ${logId}`);
       } catch (e) {
-        console.error("[DTU] Error appending logs", e);
-        res.writeHead(400);
-        res.end();
+        console.warn("[DTU] Failed to parse log lines", e);
       }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ count: 0, value: [] }));
     });
+    return;
+  }
+
+  // 18. Generic Step Outputs Handler
+  if (method === "POST" && url?.includes("/outputs")) {
+    console.log(`[DTU] Acknowledging step outputs: ${url}`);
+    res.writeHead(200);
+    res.end(JSON.stringify({ value: {} }));
+    return;
+  }
+
+  // 19. Generic Job Retrieval Handler
+  if (
+    method === "GET" &&
+    url?.includes("/_apis/distributedtask/pools/") &&
+    url?.includes("/jobs/")
+  ) {
+    console.log(`[DTU] Acknowledging job retrieval: ${url}`);
+    res.writeHead(200);
+    res.end(
+      JSON.stringify({
+        id: "1",
+        name: "job",
+        status: "completed",
+      }),
+    );
     return;
   }
 

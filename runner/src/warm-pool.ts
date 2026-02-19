@@ -3,13 +3,7 @@ import path from "path";
 import fs from "fs";
 import { pollJobs, fetchRegistrationToken } from "./bridge.js";
 import { config } from "./config.js";
-import {
-  getTimestamp,
-  ensureLogDirs,
-  finalizeLog,
-  PENDING_LOGS_DIR,
-  IN_PROGRESS_LOGS_DIR,
-} from "./logger.js";
+import { createLogContext, finalizeLog } from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
@@ -23,7 +17,6 @@ interface RunnerState {
   stream?: NodeJS.ReadableStream;
   logPath: string;
   logStream: fs.WriteStream;
-  timestamp: string;
   commitSha?: string;
 }
 
@@ -39,7 +32,9 @@ export class WarmPool {
   }
 
   public async start() {
-    if (this.isRunning) return;
+    if (this.isRunning) {
+      return;
+    }
     this.isRunning = true;
     console.log("[WarmPool] Starting warm pool manager...");
 
@@ -56,12 +51,16 @@ export class WarmPool {
   public async stop() {
     console.log("[WarmPool] Stopping warm pool manager...");
     this.isRunning = false;
-    if (this.reconcileInterval) clearInterval(this.reconcileInterval);
+    if (this.reconcileInterval) {
+      clearInterval(this.reconcileInterval);
+    }
     await this.cleanupAll();
   }
 
   private async reconcile() {
-    if (!this.isRunning) return;
+    if (!this.isRunning) {
+      return;
+    }
 
     // Filter out runners that might have died unexpectedly (if we missed the exit event)
     // For now, we rely on event listeners, but we could add a docker.listContainers check here for robustness.
@@ -88,7 +87,9 @@ export class WarmPool {
     // Poll the bridge to announce presence and get jobs
     const jobs = await pollJobs();
     for (const job of jobs) {
-      if (this.processedJobs.has(job.deliveryId)) continue;
+      if (this.processedJobs.has(job.deliveryId)) {
+        continue;
+      }
 
       console.log(`[WarmPool] Received job: ${job.deliveryId} (LocalSync: ${job.localSync})`);
       this.processedJobs.add(job.deliveryId);
@@ -101,14 +102,14 @@ export class WarmPool {
   }
 
   private async spawnRunner(job?: any) {
-    const runId = this.nextRunnerId++;
-    const randomSuffix = Math.random().toString(36).substring(2, 7);
-    const containerName = `${CONTAINER_PREFIX}${runId}-${randomSuffix}`;
+    const { name: containerName, outputLogPath } = createLogContext("oa-runner");
 
     const workDir = path.resolve(process.cwd(), "_/work", containerName); // Unique work dir per runner name
 
     // Ensure directories exist
-    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+    if (!fs.existsSync(workDir)) {
+      fs.mkdirSync(workDir, { recursive: true });
+    }
 
     try {
       // Ensure image exists before spawning
@@ -171,20 +172,16 @@ export class WarmPool {
       });
 
       const runnerId = container.id;
-      const timestamp = getTimestamp();
-      ensureLogDirs();
-      const logPath = path.join(PENDING_LOGS_DIR, `${timestamp}-${containerName}.log`);
 
-      const logStream = fs.createWriteStream(logPath, { flags: "a" });
+      const logStream = fs.createWriteStream(outputLogPath, { flags: "a" });
 
       // Add to map IMMEDIATELY as warm
       this.runners.set(runnerId, {
         id: runnerId,
         name: containerName,
         type: "warm",
-        logPath,
+        logPath: outputLogPath,
         logStream,
-        timestamp,
         commitSha: job?.headSha,
       });
 
@@ -285,23 +282,6 @@ export class WarmPool {
     if (runner && runner.type === "warm") {
       console.log(`[WarmPool] Runner ${runner.name} picked up a job! Marking as ACTIVE.`);
       runner.type = "active";
-
-      // Move log file if commitSha is known or becomes known
-      const newLogPath = path.join(IN_PROGRESS_LOGS_DIR, `${runner.timestamp}-${runner.name}.log`);
-
-      // Re-pipe strategy: close current stream, move file, reopen stream
-      runner.logStream.end(() => {
-        try {
-          fs.renameSync(runner.logPath, newLogPath);
-          runner.logPath = newLogPath;
-          runner.logStream = fs.createWriteStream(newLogPath, { flags: "a" });
-        } catch (err) {
-          console.error(`[WarmPool] Failed to move log file to in-progress:`, err);
-          // Reopen at old path to avoid losing logs if move fails
-          runner.logStream = fs.createWriteStream(runner.logPath, { flags: "a" });
-        }
-      });
-
       // Trigger reconcile to spawn a new warm runner
       this.reconcile();
     }
@@ -314,7 +294,7 @@ export class WarmPool {
 
       // Finalize log file
       runner.logStream.end(() => {
-        const finalPath = finalizeLog(runner.logPath, exitCode, runner.commitSha);
+        const finalPath = finalizeLog(runner.logPath, exitCode, runner.commitSha, runner.name);
         console.log(`[WarmPool] Log finalized: ${finalPath}`);
       });
 
@@ -365,12 +345,17 @@ export class WarmPool {
       console.log(`[WarmPool] Pulling image ${IMAGE}...`);
       await new Promise<void>((resolve, reject) => {
         docker.pull(IMAGE, (err: any, stream: any) => {
-          if (err) return reject(err);
+          if (err) {
+            return reject(err);
+          }
           docker.modem.followProgress(
             stream,
             (err: any) => {
-              if (err) reject(err);
-              else resolve();
+              if (err) {
+                reject(err);
+              } else {
+                resolve();
+              }
             },
             () => {},
           );
@@ -407,7 +392,9 @@ export class WarmPool {
 
   private async prepareShims(containerName: string): Promise<string[]> {
     const shimsDir = path.resolve(process.cwd(), "_/shims", containerName);
-    if (!fs.existsSync(shimsDir)) fs.mkdirSync(shimsDir, { recursive: true });
+    if (!fs.existsSync(shimsDir)) {
+      fs.mkdirSync(shimsDir, { recursive: true });
+    }
 
     const gitShimPath = path.join(shimsDir, "git");
     const gitShimContent = `#!/bin/bash
