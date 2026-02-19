@@ -1,13 +1,13 @@
 {
   "name": "bridge",
   "version": "1.0.0",
-  "description": "A bare-bones RedwoodSDK starter",
-  "main": "index.js",
-  "type": "module",
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
   "private": true,
+  "description": "A bare-bones RedwoodSDK starter",
+  "keywords": [],
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
   "scripts": {
     "build": "vite build",
     "dev": "(pnpm dlx kill-port 8910 || true) && CI=true vite dev --port 8911 --strictPort",
@@ -20,7 +20,7 @@
     "release": "rw-scripts ensure-deploy-env && npm run clean && npm run build && wrangler deploy",
     "generate": "rw-scripts ensure-env && wrangler types --include-runtime false",
     "check": "npm run generate && npm run types",
-    "types": "tsc"
+    "types": "tsgo"
   },
   "dependencies": {
     "react": "19.2.4",
@@ -35,7 +35,6 @@
     "@types/node": "~24.10.0",
     "@types/react": "19.2.10",
     "@types/react-dom": "19.2.3",
-    "typescript": "5.9.3",
     "vite": "7.3.1",
     "wrangler": "4.61.1"
   }

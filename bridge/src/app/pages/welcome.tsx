@@ -46,19 +46,13 @@ export const Welcome = () => {
               </a>
               .
             </li>
-            <li>
-              Join the community to ask questions and share what you’re
-              building.
-            </li>
+            <li>Join the community to ask questions and share what you’re building.</li>
           </ol>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Deploy to Cloudflare</h2>
-          <p>
-            RedwoodSDK runs on Cloudflare Workers. Here’s the quickest way to
-            deploy.
-          </p>
+          <p>RedwoodSDK runs on Cloudflare Workers. Here’s the quickest way to deploy.</p>
           <div className={styles.codeBlock}>
             <span className={styles.codePrompt}>$</span>
             <code className={styles.code}>pnpm release</code>

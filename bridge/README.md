@@ -7,6 +7,7 @@ The **Bridge** is a Cloudflare Worker that acts as a secure traffic controller b
 This service is "stateless" but uses Cloudflare KV for presence and job queuing.
 
 ### Roles
+
 1. **Webhook Handler**: Receives `workflow_job` events from GitHub.
 2. **Presence Monitor**: Tracks if your local runner is online via Heartbeat API.
 3. **Job Queue**: Temporarily holds jobs (in KV) until the local runner picks them up.

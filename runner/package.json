@@ -2,15 +2,15 @@
   "name": "runner",
   "version": "1.0.0",
   "description": "Local runner for oa-1",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsgo",
     "dev": "node --env-file=.env dist/index.js",
     "oa": "tsx --env-file=.env src/cli.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@actions/workflow-parser": "0.3.43",
     "dockerode": "^4.0.2",
@@ -21,7 +21,15 @@
     "@types/dockerode": "^3.3.34",
     "@types/node": "^22.10.2",
     "ts-node": "^10.9.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.7.2"
+    "tsx": "^4.21.0"
+  },
+  "ts-node": {
+    "transpileOnly": true,
+    "transpiler": "ts-node/transpilers/swc",
+    "files": true,
+    "compilerOptions": {
+      "module": "esnext",
+      "isolatedModules": false
+    }
   }
 }

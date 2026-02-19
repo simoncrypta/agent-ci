@@ -21,10 +21,7 @@ const payload = {
 
 async function sendWebhook() {
   const body = JSON.stringify(payload);
-  const signature = crypto
-    .createHmac("sha256", WEBHOOK_SECRET)
-    .update(body)
-    .digest("hex");
+  const signature = crypto.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
 
   console.log("Sending webhook to:", WEBHOOK_URL);
   console.log("Secret used:", WEBHOOK_SECRET);

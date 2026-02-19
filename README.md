@@ -19,25 +19,31 @@ This project is organized as a `pnpm` workspace:
 ## Getting Started
 
 ### 1. Prerequisites
+
 - `pnpm` (v10+)
 - `Docker` installed and running.
 
 ### 2. Install Dependencies
+
 Run from the root directory:
+
 ```bash
 pnpm install
 ```
 
 ### 3. Environment Setup
+
 Shared environment variables are managed at the root.
+
 1. Copy the example environment file:
    ```bash
    cp .env.example .env
    ```
-2. Edit `.env` and `.dev.vars` at the root as needed. 
+2. Edit `.env` and `.dev.vars` at the root as needed.
 
 > [!NOTE]
 > All services use symbolic links pointing back to these root files:
+>
 > - `bridge/.env` -> `../.env`
 > - `runner/.env` -> `../.env`
 > - `dtu/github-actions/.env` -> `../../.env`
@@ -47,16 +53,19 @@ Shared environment variables are managed at the root.
 ## Run Locally
 
 You can run all services in the required sequence from the root:
+
 ```bash
 pnpm dev
 ```
 
 This command uses `concurrently` and `wait-on` to ensure:
+
 1. `dtu/github-actions` (Mock Server) starts first on port 8910.
 2. `bridge` waits for the mock server to be ready and starts on port 8911.
 3. `runner` waits for the bridge to be ready.
 
 Or target specific services:
+
 ```bash
 pnpm --filter dtu/github-actions dev
 pnpm --filter bridge dev

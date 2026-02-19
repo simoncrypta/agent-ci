@@ -2,10 +2,20 @@
   "name": "oa-1",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others --names \"GitHub,Bridge,Runner\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter runner dev\""
+    "dev": "concurrently --kill-others --names \"GitHub,Bridge,Runner\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter runner dev\"",
+    "check": "npm-run-all --parallel typecheck lint format:check",
+    "typecheck": "pnpm -r exec tsgo",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "devDependencies": {
+    "@nkzw/oxlint-config": "1.0.1",
+    "@typescript/native-preview": "7.0.0-dev.20260219.1",
     "concurrently": "^9.2.1",
+    "npm-run-all2": "8.0.4",
+    "oxfmt": "0.33.0",
+    "oxlint": "1.48.0",
     "wait-on": "^9.0.3"
   },
   "pnpm": {

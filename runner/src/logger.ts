@@ -29,7 +29,7 @@ export function finalizeLog(logPath: string, exitCode: number, commitSha?: strin
   ensureLogDirs(); // Just in case
   const basename = path.basename(logPath, ".log"); // e.g. "20260218-1821-runner"
   const finalFilename = `${basename}-${exitCode}.log`;
-  
+
   let targetDir = COMPLETED_LOGS_DIR;
   if (commitSha && commitSha !== "unknown") {
     targetDir = path.join(COMPLETED_LOGS_DIR, commitSha);

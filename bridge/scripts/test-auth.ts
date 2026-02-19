@@ -1,4 +1,3 @@
-
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://localhost:8911";
 const BRIDGE_API_KEY = process.env.BRIDGE_API_KEY;
 const USERNAME = process.env.GITHUB_USERNAME;

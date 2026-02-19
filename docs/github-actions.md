@@ -16,7 +16,7 @@ sequenceDiagram
     Note over DTU: State: In-Memory GitHub Mock
     DTU->>Bridge: POST /webhook (workflow_job)
     Note over Bridge: Validate Signature & Queue Job
-    
+
     loop Every 10s
         Runner->>Bridge: GET /api/jobs?username=peterp
         Bridge-->>Runner: 200 OK [Job metadata]
@@ -24,11 +24,11 @@ sequenceDiagram
 
     Note over Runner: Job Claimed
     Runner->>Container: Spin up (catthehacker/ubuntu)
-    
+
     Container->>DTU: GET /repos/:owner/:repo/actions/jobs/:job_id
     Note right of DTU: Mirrors GitHub REST API
     DTU-->>Container: 200 OK [Full Job JSON]
-    
+
     Note over Container: Execute Workflow Steps
 ```
 
@@ -39,10 +39,12 @@ sequenceDiagram
 The DTU provides a mirrored GitHub API to ensure that production code running inside containers interacts with a "real" (simulated) GitHub environment.
 
 ### GitHub REST API Mirror
+
 **Endpoint**: `GET /repos/{owner}/{repo}/actions/jobs/{job_id}`  
 **Source of Truth**: [GitHub REST API Documentation](https://docs.github.com/en/rest/actions/workflow-jobs#get-a-job-for-a-workflow-run)
 
 **Example Response**:
+
 ```json
 {
   "id": 12345678,
@@ -55,6 +57,7 @@ The DTU provides a mirrored GitHub API to ensure that production code running in
 ```
 
 ### Internal DTU Seeding
+
 **Endpoint**: `POST /_dtu/seed`  
 Used by simulation scripts (`dtu/github-actions/simulate.ts`) to populate the mock server state.
 
@@ -65,6 +68,7 @@ Used by simulation scripts (`dtu/github-actions/simulate.ts`) to populate the mo
 Even if the Bridge says you are "active," GitHub itself won't send the job to your machine unless the official GitHub Actions self-hosted runner application is running and connected to GitHub’s servers.
 
 ### The Registration Flow
+
 The OA-1 system automates runner registration using the Bridge as a secure credential manager. This eliminates the need for manual registration tokens.
 
 1.  **Request Token**: The Runner calls the Bridge (`GET /api/registration-token`) before spinning up a Docker container.
@@ -73,6 +77,7 @@ The OA-1 system automates runner registration using the Bridge as a secure crede
 4.  **Registration**: The official runner application (`./run.sh`) uses the token to register itself with a unique name (e.g., `oa-runner-1`).
 
 ### Required Credentials
+
 For the Bridge to perform this automation, the following environment variables (defined in your root `.env` or Bridge `.dev.vars`) must be configured:
 
 - `GITHUB_APP_ID`: The ID of your GitHub App.
@@ -81,7 +86,9 @@ For the Bridge to perform this automation, the following environment variables (
 - `GITHUB_REPO`: The `owner/repo` string for the target repository.
 
 ### Required GitHub App Permissions
+
 The GitHub App must be installed on the repository with at least:
+
 - **Actions**: `Read & write`
 - **Administration**: `Read & write`
 - **Metadata**: `Read-only`
@@ -93,11 +100,13 @@ The GitHub App must be installed on the repository with at least:
 The Bridge acts as the message queue and presence orchestrator.
 
 ### Webhook Ingestion
+
 **Endpoint**: `POST /api/webhook`  
 **Description**: Receives `workflow_job` events from GitHub (or DTU).  
 **Security**: Validates `X-Hub-Signature-256` using `GITHUB_WEBHOOK_SECRET`.
 
 ### Job Polling
+
 **Endpoint**: `GET /api/jobs?username={username}`  
 **Description**: Runners poll this endpoint to announce availability and retrieve queued jobs.  
 **State**: Responding with a list of job metadata (IDs and tokens).
@@ -117,6 +126,7 @@ The Bridge acts as the message queue and presence orchestrator.
 ## 4. Why this matters for "Opposite-Actions"
 
 By mirroring the official GitHub API in the DTU, we ensure that:
+
 - **Zero code changes**: The runner container doesn't know it's not talking to GitHub.
 - **Local Isolation**: You can develop and test CI logic without any internet connection.
 - **Technical Accuracy**: The system follows the exact same pull-based logic as the official GitHub Actions runner.

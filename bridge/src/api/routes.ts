@@ -14,7 +14,7 @@ function requiresAuthToken({ request }: { request: Request }) {
 
 export const apiRoutes = [
   route("/webhook", { post: handleWebhook }),
-  route("/jobs", [requiresAuthToken, handleJobs ]),
+  route("/jobs", [requiresAuthToken, handleJobs]),
   route("/presence", handlePresence),
   route("/registration-token", [requiresAuthToken, handleRegistrationToken]),
   route("/local-job", [requiresAuthToken, handleLocalJob]),
@@ -77,7 +77,7 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
   };
 
   await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
-  
+
   // 3b. Update recent list
   const recentWebhooksJson = await env.OA1_BRIDGE_JOBS.get("webhooks:recent");
   const recentIds: string[] = recentWebhooksJson ? JSON.parse(recentWebhooksJson) : [];
@@ -91,10 +91,10 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
   if (jobId) {
     await env.OA1_BRIDGE_JOBS.put(`jobid@${jobId}`, deliveryId);
   }
-  
+
   // 5. Identify User & Check Presence
   const presence = await env.OA1_BRIDGE_PRESENCE.get(`presence@${username}`);
-  
+
   if (!presence) {
     console.log(`User ${username} is OFFLINE. Triggering cloud fallback.`);
     webhookData.status = "fallback";
@@ -105,27 +105,25 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
   // 6. Queue Job for Runner (GitHub metadata)
   const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
   const jobs = jobsJson ? JSON.parse(jobsJson) : [];
-  
+
   const installationId = payload.installation?.id;
   if (!installationId) {
-      return new Response("Missing installation ID in payload", { status: 400 });
+    return new Response("Missing installation ID in payload", { status: 400 });
   }
 
-  jobs.push({ 
+  jobs.push({
     deliveryId,
     githubJobId: payload.workflow_job.id,
     githubRepo: payload.repository.full_name,
     installationId, // Store the installationId instead of GITHUB_TOKEN
-  }); 
-  
+  });
+
   await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
 
   return new Response("Job queued locally", { status: 200 });
 }
 
-
-
-async function handleJobs({ request }: { request: Request }): Promise<Response> { 
+async function handleJobs({ request }: { request: Request }): Promise<Response> {
   const url = new URL(request.url);
   const username = url.searchParams.get("username");
 
@@ -134,9 +132,13 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
   }
 
   // Update presence
-  await env.OA1_BRIDGE_PRESENCE.put(`presence@${username}`, JSON.stringify({ status: "online", lastSeen: Date.now() }), {
-    expirationTtl: 60, // 60 seconds TTL
-  });
+  await env.OA1_BRIDGE_PRESENCE.put(
+    `presence@${username}`,
+    JSON.stringify({ status: "online", lastSeen: Date.now() }),
+    {
+      expirationTtl: 60, // 60 seconds TTL
+    },
+  );
 
   // Get and Clear for MVP
   const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
@@ -146,37 +148,40 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
   if (rawJobs.length > 0) {
     // Generate tokens for each job on-demand
     for (const job of rawJobs) {
-        if (job.localSync) {
-            jobs.push(job);
-            continue;
-        }
-        try {
-            console.log(`[Bridge] Generating on-demand token for ${job.githubRepo}...`);
-            const token = await getInstallationToken(job.installationId.toString(), job.githubRepo);
-            jobs.push({
-                ...job,
-                githubToken: token,
-            });
-        } catch (error) {
-            console.error(`[Bridge] Failed to generate token for job ${job.githubJobId}:`, error);
-            // In a real system, we might want to re-queue this or mark as failed
-        }
+      if (job.localSync) {
+        jobs.push(job);
+        continue;
+      }
+      try {
+        console.log(`[Bridge] Generating on-demand token for ${job.githubRepo}...`);
+        const token = await getInstallationToken(job.installationId.toString(), job.githubRepo);
+        jobs.push({
+          ...job,
+          githubToken: token,
+        });
+      } catch (error) {
+        console.error(`[Bridge] Failed to generate token for job ${job.githubJobId}:`, error);
+        // In a real system, we might want to re-queue this or mark as failed
+      }
     }
 
     // Clear the queue
     await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify([]));
   }
 
-  return new Response(JSON.stringify({
-    username,
-    jobs,
-  }), {
-    headers: { "Content-Type": "application/json" },
-  });
+  return new Response(
+    JSON.stringify({
+      username,
+      jobs,
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 }
 
 async function handleLocalJob({ request }: { request: Request }): Promise<Response> {
-  const body = await request.json() as any;
+  const body = (await request.json()) as any;
   const { username, repoName, repoPath, headSha } = body;
 
   if (!username || !repoName || !repoPath || !headSha) {
@@ -184,7 +189,9 @@ async function handleLocalJob({ request }: { request: Request }): Promise<Respon
   }
 
   const deliveryId = crypto.randomUUID();
-  console.log(`[Bridge] Queuing local sync job for ${username}: ${repoName} (DeliveryID: ${deliveryId})`);
+  console.log(
+    `[Bridge] Queuing local sync job for ${username}: ${repoName} (DeliveryID: ${deliveryId})`,
+  );
 
   // Store for UI
   const jobData = {
@@ -237,9 +244,6 @@ async function handlePresence({ request }: { request: Request }): Promise<Respon
   return new Response(status, { status: 200 });
 }
 
-
-
-
 async function handleRegistrationToken({ request }: { request: Request }): Promise<Response> {
   const url = new URL(request.url);
   const username = url.searchParams.get("username");
@@ -257,7 +261,9 @@ async function handleRegistrationToken({ request }: { request: Request }): Promi
     console.log(`[Bridge] Fetching installation for ${fullRepo}...`);
     const installationId = await getInstallationIdForRepo(owner, repoName);
 
-    console.log(`[Bridge] Generating registration token for ${fullRepo} (Installation ID: ${installationId})...`);
+    console.log(
+      `[Bridge] Generating registration token for ${fullRepo} (Installation ID: ${installationId})...`,
+    );
     const token = await getRegistrationToken(installationId, fullRepo);
     console.log(`[Bridge] Registration token generated successfully for ${fullRepo}.`);
 
@@ -274,11 +280,15 @@ async function handleRegistrationToken({ request }: { request: Request }): Promi
  * Utilities
  */
 
-async function verifySignature(secret: string, header: string | null, payload: string): Promise<boolean> {
+async function verifySignature(
+  secret: string,
+  header: string | null,
+  payload: string,
+): Promise<boolean> {
   if (!secret || !header) return false;
   const parts = header.split("=");
   const sigHex = parts[1];
-  
+
   if (!sigHex) return false;
 
   const algorithm = { name: "HMAC", hash: "SHA-256" };
@@ -287,7 +297,7 @@ async function verifySignature(secret: string, header: string | null, payload: s
     new TextEncoder().encode(secret),
     algorithm,
     false,
-    ["verify"]
+    ["verify"],
   );
 
   try {
@@ -295,7 +305,7 @@ async function verifySignature(secret: string, header: string | null, payload: s
       algorithm,
       key,
       hexToBytes(sigHex) as any,
-      new TextEncoder().encode(payload)
+      new TextEncoder().encode(payload),
     );
     return verified;
   } catch (e) {

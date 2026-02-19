@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 
 const secretsSchema = z.object({
@@ -15,13 +14,11 @@ function parseEnvVars(): Secrets {
   const result = secretsSchema.safeParse(process.env);
 
   if (!result.success) {
-    const missingVars = result.error.issues
-      .map((issue) => issue.path.join("."))
-      .join(", ");
+    const missingVars = result.error.issues.map((issue) => issue.path.join(".")).join(", ");
 
     throw new Error(
       `Invalid configuration: The following environment variables are missing or invalid in process.env: ${missingVars}.\n` +
-      `Please ensure they are set in your environment configuration (e.g. .dev.vars for local development or environment variables for deployment).`
+        `Please ensure they are set in your environment configuration (e.g. .dev.vars for local development or environment variables for deployment).`,
     );
   }
 

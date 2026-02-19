@@ -5,11 +5,13 @@ This document explains how to deploy **Opposite-Actions** into production, from 
 ## 1. Overview & Prerequisites
 
 **Opposite-Actions** uses a three-tier architecture:
+
 1.  **GitHub App**: Triggers jobs via webhooks.
 2.  **Cloudflare Bridge**: Orchestrates jobs and tracks runner presence.
 3.  **Local Runner**: Polls the Bridge and executes jobs in Docker.
 
 ### Prerequisites
+
 - **Node.js** (v20+) and **pnpm** (v10+).
 - **Cloudflare Account** with Workers and KV enabled.
 - **Docker**: For MacOS users, **[Orbstack](https://orbstack.dev/)** is highly recommended for its performance and low resource usage compared to Docker Desktop.
@@ -35,8 +37,8 @@ The GitHub App is responsible for sending `workflow_job` events to the Bridge.
     - `Workflow job`
 7.  **Private Key**: After creating the app, scroll down and click **Generate a private key**. Save the `.pem` file safely.
 8.  **App ID**: Note the `App ID` displayed on the General settings page.
-9.  **Install App**: On the left sidebar, click **Install App**, find your name or organization, and click **Install**. 
-    - *Note*: If you don't see your Organization here, it's likely because the app is "Private" to your personal account.
+9.  **Install App**: On the left sidebar, click **Install App**, find your name or organization, and click **Install**.
+    - _Note_: If you don't see your Organization here, it's likely because the app is "Private" to your personal account.
 10. **Organization Installation (Optional)**: If you need to install the app on an organization:
     - Go to **General** on the left sidebar.
     - Scroll down to **Where can this GitHub App be installed?**.
@@ -52,6 +54,7 @@ The Bridge runs on Cloudflare Workers and uses KV for job storage.
 ### 1. Set Secrets using 1Password
 
 Before deploying, create an item in your **1Password** vault (e.g., in the `RedwoodJS` vault) named `OppositeActions` with the following fields:
+
 - `GITHUB_WEBHOOK_SECRET`: The GitHub Webhook secret.
 - `GITHUB_APP_ID`: The GitHub App ID.
 - `GITHUB_PRIVATE_KEY`: The content of the private key `.pem` file.
@@ -70,6 +73,7 @@ op read "op://RedwoodJS/OppositeActions/GITHUB_PRIVATE_KEY" | npx wrangler secre
 ```
 
 ### 4. Deploy
+
 ```bash
 pnpm --filter bridge release
 ```
@@ -89,6 +93,7 @@ Before starting the OA-1 Runner, you must have an official GitHub Actions self-h
 3.  Take note of the directory where you installed the runner.
 
 ### 2. Configure `.env`
+
 Create a `.env` file in the root directory (the Runner will use this via symlink):
 
 ```bash
@@ -100,6 +105,7 @@ GITHUB_USERNAME=your-github-handle
 **Note**: The OA-1 Runner will automatically search for the official runner's `./run.sh` in the current directory and the project root.
 
 ### 3. Start the Runner
+
 ```bash
 # Install dependencies
 pnpm install

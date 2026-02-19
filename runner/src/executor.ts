@@ -26,13 +26,16 @@ function findRunnerPath(): string | null {
   return null;
 }
 
-
 export async function startGitHubRunner(): Promise<void> {
   const runnerPath = findRunnerPath();
 
   if (!runnerPath) {
-    console.log("[GitHubRunner] Official runner (run.sh) not found in standard locations. Skipping official runner start.");
-    console.log("[GitHubRunner] Tip: Install the official runner in the project root with the label 'opposite-actions'.");
+    console.log(
+      "[GitHubRunner] Official runner (run.sh) not found in standard locations. Skipping official runner start.",
+    );
+    console.log(
+      "[GitHubRunner] Tip: Install the official runner in the project root with the label 'opposite-actions'.",
+    );
     return;
   }
 
@@ -48,7 +51,9 @@ export async function startGitHubRunner(): Promise<void> {
         needsConfig = false;
         console.log(`[GitHubRunner] Existing configuration matches ${expectedRepoUrl}.`);
       } else {
-        console.log(`[GitHubRunner] Configuration mismatch. Current: ${currentConfig.gitHubUrl}, Expected: ${expectedRepoUrl}`);
+        console.log(
+          `[GitHubRunner] Configuration mismatch. Current: ${currentConfig.gitHubUrl}, Expected: ${expectedRepoUrl}`,
+        );
       }
     } catch (e) {
       console.warn("[GitHubRunner] Failed to read .runner config. Re-configuring...");
@@ -60,16 +65,19 @@ export async function startGitHubRunner(): Promise<void> {
     try {
       const registrationToken = await fetchRegistrationToken();
       const configScript = path.join(runnerPath, "config.sh");
-      
-      execSync(`${configScript} --url ${expectedRepoUrl} --token ${registrationToken} --name local-runner --replace --unattended --labels opposite-actions`, {
-        cwd: runnerPath,
-        stdio: "inherit",
-        env: {
-          ...process.env,
-          GITHUB_API_URL: config.GITHUB_API_URL,
-          GITHUB_SERVER_URL: `${config.GITHUB_API_URL}/${config.GITHUB_REPO}`,
-        }
-      });
+
+      execSync(
+        `${configScript} --url ${expectedRepoUrl} --token ${registrationToken} --name local-runner --replace --unattended --labels opposite-actions`,
+        {
+          cwd: runnerPath,
+          stdio: "inherit",
+          env: {
+            ...process.env,
+            GITHUB_API_URL: config.GITHUB_API_URL,
+            GITHUB_SERVER_URL: `${config.GITHUB_API_URL}/${config.GITHUB_REPO}`,
+          },
+        },
+      );
       console.log("[GitHubRunner] Configuration successful.");
     } catch (error: any) {
       console.error("[GitHubRunner] Configuration failed:", error.message);
@@ -128,8 +136,8 @@ export async function executeJob(job: Job): Promise<void> {
   const runnerName = `executor-${job.deliveryId.substring(0, 8)}`;
   ensureLogDirs();
   let logPath = path.join(IN_PROGRESS_LOGS_DIR, `${timestamp}-${runnerName}.log`);
-  
-  const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
 
   console.log(`[Executor] Processing job: ${job.deliveryId}`);
 
@@ -155,7 +163,7 @@ export async function executeJob(job: Job): Promise<void> {
         `echo "[Worker] Fetching job details from GitHub..." && \\
          curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \\
          "$GITHUB_API_URL/repos/$GITHUB_REPO/actions/jobs/$GITHUB_JOB_ID" | tee /tmp/job_details.json && \\
-         echo "\n[Worker] GitHub job details retrieved successfully."`
+         echo "\n[Worker] GitHub job details retrieved successfully."`,
       ],
       Env: envVars,
       Tty: false,
@@ -176,7 +184,7 @@ export async function executeJob(job: Job): Promise<void> {
       stderr: true,
       follow: false,
     });
-    
+
     // Write everything to the log file
     fs.appendFileSync(logPath, logBuffer.toString());
 
@@ -188,7 +196,7 @@ export async function executeJob(job: Job): Promise<void> {
     // 6. Cleanup
     if (exitCode !== 0) {
       console.warn(
-        `[Executor] Job failed with exit code ${exitCode}. Container ${container.id} preserved for debugging.`
+        `[Executor] Job failed with exit code ${exitCode}. Container ${container.id} preserved for debugging.`,
       );
     } else {
       await container.remove({ v: true, force: true });
@@ -197,9 +205,9 @@ export async function executeJob(job: Job): Promise<void> {
   } catch (error: any) {
     console.error(`[Executor] Job failed:`, error.message);
     if (fs.existsSync(logPath)) {
-        const commitSha = job.headSha || "unknown";
-        const finalPath = finalizeLog(logPath, 1, commitSha);
-        console.log(`[Executor] Log finalized (failure): ${finalPath}`);
+      const commitSha = job.headSha || "unknown";
+      const finalPath = finalizeLog(logPath, 1, commitSha);
+      console.log(`[Executor] Log finalized (failure): ${finalPath}`);
     }
     throw error;
   }

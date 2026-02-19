@@ -68,7 +68,7 @@ export interface JobWorkspace {
 }
 
 export interface PipelineAgentJobRequest {
-  MessageType: 'PipelineAgentJobRequest';
+  MessageType: "PipelineAgentJobRequest";
   Plan: {
     PlanId: string;
     PlanType: string;

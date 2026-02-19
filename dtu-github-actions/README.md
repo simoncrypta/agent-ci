@@ -29,8 +29,8 @@ From the project root:
 
 ## Structure
 
--   `src/`:
-    -   `config.ts`: Zod-based configuration.
-    -   `server.ts`: Mock GitHub API server.
-    -   `simulate.ts`: Webhook simulation script.
--   `events/`: Mock GitHub JSON payloads.
+- `src/`:
+  - `config.ts`: Zod-based configuration.
+  - `server.ts`: Mock GitHub API server.
+  - `simulate.ts`: Webhook simulation script.
+- `events/`: Mock GitHub JSON payloads.

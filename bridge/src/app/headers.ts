@@ -18,10 +18,7 @@ export const setCommonHeaders =
     response.headers.set("Referrer-Policy", "no-referrer");
 
     // Explicitly disables access to specific browser features/APIs
-    response.headers.set(
-      "Permissions-Policy",
-      "geolocation=(), microphone=(), camera=()",
-    );
+    response.headers.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
 
     // Defines trusted sources for content loading and script execution:
     response.headers.set(

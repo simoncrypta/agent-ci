@@ -2,15 +2,16 @@
   "name": "dtu-github-actions",
   "version": "1.0.0",
   "description": "Digital Twin Universe - GitHub Actions Mock and Simulation",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
   "type": "module",
   "scripts": {
     "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server.ts",
     "simulate": "tsx --env-file=.env src/simulate.ts",
+    "typecheck": "tsgo",
     "test": "BRIDGE_URL=http://localhost:8911 GITHUB_WEBHOOK_SECRET=test-secret vitest run"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "zod": "^3.24.1"
   },
@@ -18,7 +19,6 @@
     "@types/node": "^22.10.2",
     "execa": "^9.6.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
     "vitest": "^4.0.18"
   }
 }

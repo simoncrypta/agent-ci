@@ -16,8 +16,5 @@ export default defineApp([
     ctx;
   },
   prefix("/api", apiRoutes),
-  render(Document, [
-    route("/", Home),
-    route("/admin/jobs", JobsPage),
-  ]),
+  render(Document, [route("/", Home), route("/admin/jobs", JobsPage)]),
 ]);

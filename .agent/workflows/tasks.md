@@ -9,6 +9,7 @@ Be concise. Use simple language.
 Use the following Markdown structure:
 
 ## Next Steps
+
 - [ ] Action item 1
       Motivation section. Things to consider. Importance 1-5.
       Cite references.
