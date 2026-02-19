@@ -1,0 +1,8 @@
+name: E2E Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say Hello
+        run: echo "Hello from E2E"

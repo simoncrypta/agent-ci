@@ -1,6 +1,13 @@
 export interface JobStep {
   Id: string;
-  name: string;
+  Name: string;
+  Type: string;
+  Reference: {
+    Type: string;
+    [key: string]: any;
+  };
+  Inputs?: { [key: string]: string };
+  ContextData?: any;
   [key: string]: any;
 }
 
@@ -98,7 +105,7 @@ export interface PipelineAgentJobRequest {
   };
   Actions: any[];
   MaskHints: any[];
-  EnvironmentVariables: any[];
+  EnvironmentVariables: { [key: string]: string };
 }
 
 export interface MessageResponse {

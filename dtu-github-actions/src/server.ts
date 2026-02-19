@@ -71,10 +71,27 @@ function toContextData(obj: any): {
 }
 
 function createJobResponse(jobId: string, payload: any, baseUrl: string): MessageResponse {
-  const mappedSteps: JobStep[] = (payload.steps || []).map((step: any) => ({
-    ...step,
-    Id: crypto.randomUUID(),
-  }));
+  const mappedSteps: JobStep[] = (payload.steps || []).map((step: any, index: number) => {
+    // If it's already in the correct format (from workflowParser), preserve it
+    if (step.Type && step.Reference) {
+      return {
+        ...step,
+        Id: step.Id || crypto.randomUUID(),
+      };
+    }
+
+    // Otherwise, try to map from generic seed
+    return {
+      Id: crypto.randomUUID(),
+      Name: step.name || `step-${index}`,
+      Type: "Action",
+      Reference: {
+        Type: "Script",
+      },
+      Inputs: step.run ? { script: step.run } : {},
+      ContextData: {},
+    };
+  });
 
   const repoFullName = payload.repository?.full_name || "redwoodjs/opposite-actions";
   const ownerName = payload.repository?.owner?.login || "redwoodjs";
@@ -190,7 +207,7 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
     },
     Actions: [],
     MaskHints: [],
-    EnvironmentVariables: [],
+    EnvironmentVariables: {},
   };
 
   console.log(`[DTU] DEBUG: Generating Job Response for JobId: ${crypto.randomUUID()}`);
