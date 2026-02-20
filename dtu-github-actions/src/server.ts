@@ -520,6 +520,15 @@ export const server = http.createServer((req, res) => {
 
       if (method === "DELETE" && sessionId) {
         console.log(`[DTU] Deleting session ${sessionId} for pool ${poolId}`);
+        // Close any pending long-poll so the runner doesn't have to cancel it
+        const pending = pendingPolls.get(sessionId);
+        if (pending && !pending.res.writableEnded) {
+          pending.res.writeHead(204);
+          pending.res.end();
+        }
+        pendingPolls.delete(sessionId);
+        sessions.delete(sessionId);
+        messageQueues.delete(sessionId);
         res.writeHead(204);
         res.end();
         return;

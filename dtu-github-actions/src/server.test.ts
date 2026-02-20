@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { server, jobs } from "./server.js";
-import { config } from "./config.js";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
 
-const PORT = config.DTU_PORT + 2; // Use a different port for tests
+let PORT: number;
 
 async function request(method: string, path: string, body?: any) {
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
@@ -44,7 +44,11 @@ async function request(method: string, path: string, body?: any) {
 describe("DTU Server", () => {
   beforeAll(async () => {
     await new Promise<void>((resolve) => {
-      server.listen(PORT, () => resolve());
+      server.listen(0, () => {
+        const address = server.address() as AddressInfo;
+        PORT = address.port;
+        resolve();
+      });
     });
   });
 

@@ -25,19 +25,26 @@ describe("Runner E2E Regressions", () => {
     const result = await harness.runRunner(jobId);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("DTU seeded successfully");
-    expect(result.stdout).toContain("Runner exited with code 0");
+    expect(result.stdout).toContain("Job succeeded");
 
-    // Check DTU for the captured logs
-    const dump = await (await fetch(`http://localhost:8990/_dtu/dump`)).json();
-    const allLogs = Object.values(dump.logs).flat().join("\n");
+    // Check the runner's step-output.log file directly since DTU now writes to it
+    const match = result.stdout.match(/oa-runner-\d+/);
+    expect(match).toBeTruthy();
+    const runnerName = match![0];
+    const stepOutputLogPath = path.resolve(
+      process.cwd(),
+      "runner",
+      "_",
+      "logs",
+      runnerName,
+      "step-output.log",
+    );
+    const allLogs = fs.readFileSync(stepOutputLogPath, "utf8");
     expect(allLogs).toContain("Hello from E2E");
   }, 60000);
 
   it("should place logs in a flat file structure", async () => {
-    // We now use the unified logger which places in-progress logs in _/logs/in-progress
-    // and finalized logs in _/logs/completed
-    const logsDir = path.resolve(process.cwd(), "_", "logs", "completed");
+    const logsDir = path.resolve(process.cwd(), "runner", "_", "logs");
 
     const countLogFiles = (dir: string) => {
       if (!fs.existsSync(dir)) {
@@ -56,7 +63,7 @@ describe("Runner E2E Regressions", () => {
         return files;
       };
 
-      return scanDir(dir).filter((f) => path.basename(f).startsWith("oa-runner-")).length;
+      return scanDir(dir).filter((f) => f.includes("oa-runner-")).length;
     };
 
     const initialCount = countLogFiles(logsDir);
