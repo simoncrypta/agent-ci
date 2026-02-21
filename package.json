@@ -36,6 +36,9 @@
       "esbuild",
       "sharp",
       "workerd"
-    ]
+    ],
+    "patchedDependencies": {
+      "electrobun@1.13.1": "patches/electrobun@1.13.1.patch"
+    }
   }
 }
