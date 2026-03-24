@@ -111,21 +111,9 @@ DOCKER_HOST=ssh://user@remote-server npx agent-ci run --workflow .github/workflo
 
 ### Docker host resolution for job containers
 
-By default, Agent CI uses `host.docker.internal` for container-to-host DTU traffic and adds a default Docker host mapping:
+For default behavior, env overrides, and remote-daemon caveats, see the CLI package docs:
 
-- `host.docker.internal:host-gateway`
-
-This keeps behavior OS-agnostic and works on Docker Desktop and modern native Docker.
-
-If your setup is custom, use environment overrides:
-
-- `AGENT_CI_DTU_HOST` - override the hostname/IP used by runner containers to reach DTU
-- `AGENT_CI_DOCKER_EXTRA_HOSTS` - comma-separated `host:ip` entries passed to Docker `ExtraHosts` (full replacement for defaults)
-- `AGENT_CI_DOCKER_HOST_GATEWAY` - override the default `host-gateway` token/IP for automatic mapping
-- `AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS=1` - disable the default `host.docker.internal` mapping
-- `AGENT_CI_DOCKER_BRIDGE_GATEWAY` - fallback gateway IP used when Agent CI runs inside Docker and cannot detect its container IP, and as an explicit DTU host override outside Docker when `AGENT_CI_DTU_HOST` is not set
-
-When using a remote daemon (`DOCKER_HOST=ssh://...`), `host-gateway` resolves relative to the remote Docker host. If DTU is not reachable from that host, set `AGENT_CI_DTU_HOST` and `AGENT_CI_DOCKER_EXTRA_HOSTS` explicitly for your network.
+- [`packages/cli/README.md#docker-host-resolution-for-job-containers`](./packages/cli/README.md#docker-host-resolution-for-job-containers)
 
 ---
 
