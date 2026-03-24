@@ -149,6 +149,103 @@ describe("extractFailureDetails", () => {
     const details = extractFailureDetails(timelinePath, "NonExistent", tmpDir);
     expect(details).toEqual({});
   });
+
+  it("extracts failed task details from nx output", async () => {
+    const { extractFailureDetails } = await import("./result-builder.js");
+    const stepsDir = path.join(tmpDir, "steps");
+    fs.mkdirSync(stepsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stepsDir, "Run-affected-targets.log"),
+      [
+        '> yarn tsx scripts/genType.ts',
+        'Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: No "exports" main defined in /tmp/warm-modules/node_modules/execa/node_modules/unicorn-magic/package.json',
+        'Warning: command "yarn tsx scripts/genType.ts" exited with non-zero status code::endgroup::',
+        "Failed tasks:",
+        "- root:gen-type",
+      ].join("\n"),
+    );
+
+    const timelinePath = path.join(tmpDir, "timeline.json");
+    fs.writeFileSync(
+      timelinePath,
+      JSON.stringify([
+        {
+          type: "Task",
+          name: "Run affected targets",
+          result: "Failed",
+        },
+      ]),
+    );
+
+    const details = extractFailureDetails(timelinePath, "Run affected targets", tmpDir);
+    expect(details.failedTaskDetails).toEqual([
+      {
+        task: "root:gen-type",
+        hint: "mapped by command failure order",
+        command: "yarn tsx scripts/genType.ts",
+        error:
+          'Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: No "exports" main defined in /tmp/warm-modules/node_modules/execa/node_modules/unicorn-magic/package.json',
+      },
+    ]);
+  });
+
+  it("adds helpful hints and inferred errors for mixed failed task types", async () => {
+    const { extractFailureDetails } = await import("./result-builder.js");
+    const stepsDir = path.join(tmpDir, "steps");
+    fs.mkdirSync(stepsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stepsDir, "Run-affected-targets.log"),
+      [
+        "NX   ● Validation Error:",
+        "Module api/globalSetup.ts in the globalSetup option was not found.",
+        "command not found: tsup",
+        "src/contracts/loan.ts:4:42 - error TS2307: Cannot find module '@leftlane/utils'",
+        'Warning: command "yarn tsc" exited with non-zero status code::endgroup::',
+        "Failed tasks:",
+        "- root:test",
+        "- contract:build",
+        "- contract:tsc",
+      ].join("\n"),
+    );
+
+    const timelinePath = path.join(tmpDir, "timeline.json");
+    fs.writeFileSync(
+      timelinePath,
+      JSON.stringify([
+        {
+          type: "Task",
+          name: "Run affected targets",
+          result: "Failed",
+        },
+      ]),
+    );
+
+    const details = extractFailureDetails(timelinePath, "Run affected targets", tmpDir);
+    expect(details.failedTaskDetails).toEqual([
+      {
+        task: "root:test",
+        hint: "multiple failures detected; task-specific command mapping ambiguous",
+        error: "Module api/globalSetup.ts in the globalSetup option was not found.",
+      },
+      {
+        task: "contract:build",
+        hint: "multiple failures detected; task-specific command mapping ambiguous",
+        error: "Module api/globalSetup.ts in the globalSetup option was not found.",
+      },
+      {
+        task: "contract:tsc",
+        hint: "multiple failures detected; task-specific command mapping ambiguous",
+        error: "Module api/globalSetup.ts in the globalSetup option was not found.",
+      },
+    ]);
+
+    expect(details.failureHighlights).toEqual([
+      "Module api/globalSetup.ts in the globalSetup option was not found.",
+      "command not found: tsup",
+      "src/contracts/loan.ts:4:42 - error TS2307: Cannot find module '@leftlane/utils'",
+      "NX   ● Validation Error:",
+    ]);
+  });
 });
 
 // ── buildJobResult ────────────────────────────────────────────────────────────
