@@ -166,28 +166,47 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
 
 // ─── DTU host resolution ──────────────────────────────────────────────────────
 
-import fs from "fs";
-import { execSync } from "child_process";
+import fs from "node:fs";
+import dns from "node:dns/promises";
+import childProcess from "node:child_process";
+import { debugRunner } from "../output/debug.js";
+
+export const DEFAULT_DTU_HOST_ALIAS = "host.docker.internal";
+export const DEFAULT_DOCKER_BRIDGE_GATEWAY = "172.17.0.1";
 
 /**
  * Resolve the DTU host address that nested Docker containers can reach.
  * Inside Docker: use the container's own bridge IP.
  * On host: use `host.docker.internal`.
  */
-export function resolveDtuHost(): string {
+export async function resolveDtuHost(): Promise<string> {
   const isInsideDocker = fs.existsSync("/.dockerenv");
   if (!isInsideDocker) {
-    return "host.docker.internal";
+    try {
+      await dns.lookup(DEFAULT_DTU_HOST_ALIAS);
+      return DEFAULT_DTU_HOST_ALIAS;
+    } catch (error: unknown) {
+      debugRunner(
+        `DTU host alias '${DEFAULT_DTU_HOST_ALIAS}' is not resolvable (${String(error)}); using ${DEFAULT_DOCKER_BRIDGE_GATEWAY}`,
+      );
+      return DEFAULT_DOCKER_BRIDGE_GATEWAY;
+    }
   }
+
   try {
-    const ip = execSync("hostname -I 2>/dev/null | awk '{print $1}'", {
-      encoding: "utf8",
-    }).trim();
+    const ip = childProcess
+      .execSync("hostname -I 2>/dev/null | awk '{print $1}'", {
+        encoding: "utf8",
+      })
+      .trim();
     if (ip) {
       return ip;
     }
-  } catch {}
-  return "172.17.0.1"; // fallback to bridge gateway
+  } catch (error: unknown) {
+    debugRunner(`Failed to resolve container bridge IP via hostname -I (${String(error)})`);
+  }
+
+  return DEFAULT_DOCKER_BRIDGE_GATEWAY;
 }
 
 /**
@@ -225,7 +244,7 @@ function getMountMappings(): MountMapping[] {
 
   try {
     const containerId = fs.readFileSync("/etc/hostname", "utf8").trim();
-    const json = execSync(`docker inspect ${containerId}`, {
+    const json = childProcess.execSync(`docker inspect ${containerId}`, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     });

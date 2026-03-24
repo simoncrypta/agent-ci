@@ -270,7 +270,7 @@ export async function executeLocalJob(
 
     // 6. Spawn container
     const dtuPort = new URL(dtuUrl).port || "80";
-    const dtuHost = resolveDtuHost();
+    const dtuHost = await resolveDtuHost();
     const dockerApiUrl = resolveDockerApiUrl(dtuUrl, dtuHost);
     const githubRepo = job.githubRepo || config.GITHUB_REPO;
     const repoUrl = `${dockerApiUrl}/${githubRepo}`;

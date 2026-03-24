@@ -1,4 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import fs from "node:fs";
+import dns from "node:dns/promises";
+import childProcess from "node:child_process";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // ── buildContainerEnv ─────────────────────────────────────────────────────────
 
@@ -150,6 +157,55 @@ describe("resolveDockerApiUrl", () => {
     expect(resolveDockerApiUrl("http://127.0.0.1:3000", "host.docker.internal")).toBe(
       "http://host.docker.internal:3000",
     );
+  });
+});
+
+describe("resolveDtuHost", () => {
+  it("uses DEFAULT_DTU_HOST_ALIAS when alias resolves on host", async () => {
+    const cfg = await import("./container-config.js");
+    const originalExistsSync = fs.existsSync;
+
+    vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
+      if (filePath === "/.dockerenv") {
+        return false;
+      }
+      return originalExistsSync(filePath);
+    });
+    vi.spyOn(dns, "lookup").mockResolvedValue({ address: "127.0.0.1", family: 4 });
+
+    expect(await cfg.resolveDtuHost()).toBe(cfg.DEFAULT_DTU_HOST_ALIAS);
+  });
+
+  it("falls back to DEFAULT_DOCKER_BRIDGE_GATEWAY when alias is not resolvable", async () => {
+    const cfg = await import("./container-config.js");
+    const originalExistsSync = fs.existsSync;
+
+    vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
+      if (filePath === "/.dockerenv") {
+        return false;
+      }
+      return originalExistsSync(filePath);
+    });
+    vi.spyOn(dns, "lookup").mockRejectedValue(new Error("ENOTFOUND"));
+
+    expect(await cfg.resolveDtuHost()).toBe(cfg.DEFAULT_DOCKER_BRIDGE_GATEWAY);
+  });
+
+  it("falls back to DEFAULT_DOCKER_BRIDGE_GATEWAY when bridge IP probe fails in Docker", async () => {
+    const cfg = await import("./container-config.js");
+    const originalExistsSync = fs.existsSync;
+
+    vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
+      if (filePath === "/.dockerenv") {
+        return true;
+      }
+      return originalExistsSync(filePath);
+    });
+    vi.spyOn(childProcess, "execSync").mockImplementation(() => {
+      throw new Error("hostname probe failed");
+    });
+
+    expect(await cfg.resolveDtuHost()).toBe(cfg.DEFAULT_DOCKER_BRIDGE_GATEWAY);
   });
 });
 
