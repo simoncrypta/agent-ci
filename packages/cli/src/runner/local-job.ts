@@ -1,6 +1,7 @@
 import Docker from "dockerode";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { execSync } from "child_process";
 import { createInterface } from "readline";
 import { config } from "../config.js";
@@ -19,7 +20,7 @@ import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
 import { type JobResult, tailLogFile } from "../output/reporter.js";
 import { RunStateStore, type StepState } from "../output/run-state.js";
 
-import { writeJobMetadata } from "./metadata.js";
+import { writeJobMetadata, findRepoRoot } from "./metadata.js";
 import { computeFakeSha, writeGitShim } from "./git-shim.js";
 import { prepareWorkspace } from "./workspace.js";
 import { createRunDirectories } from "./directory-setup.js";
@@ -44,6 +45,13 @@ const dockerConfig = dockerHost.startsWith("unix://")
 const docker = new Docker(dockerConfig);
 
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
+
+const RUNNER_STALL_TIMEOUT_MS = Number(process.env.AGENT_CI_RUNNER_STALL_TIMEOUT_MS || "180000");
+const RUNNER_STALL_CHECK_INTERVAL_MS = Number(
+  process.env.AGENT_CI_RUNNER_STALL_CHECK_INTERVAL_MS || "5000",
+);
+
+import { computeDockerCpuPercent, extractMemoryStats } from "./docker-stats.js";
 
 // ─── Pre-baked runner credentials ─────────────────────────────────────────────
 // The GitHub Actions runner normally requires `config.sh` (a .NET binary) to
@@ -215,8 +223,55 @@ export async function executeLocalJob(
         }
       : job.repository;
 
+    const hostMemoryBytes = os.totalmem();
+    const hostCpus = Math.max(1, os.cpus().length);
+    const reserveMemoryBytes = Math.max(3 * 1024 ** 3, Math.floor(hostMemoryBytes * 0.25));
+    const containerMemoryBytes = Math.max(
+      3 * 1024 ** 3,
+      Math.min(hostMemoryBytes - 1 * 1024 ** 3, hostMemoryBytes - reserveMemoryBytes),
+    );
+    const memoryReservationBytes = Math.max(2 * 1024 ** 3, Math.floor(containerMemoryBytes * 0.85));
+    const memorySwapBytes = Math.max(
+      containerMemoryBytes,
+      Math.min(
+        hostMemoryBytes - 512 * 1024 ** 2,
+        containerMemoryBytes + Math.min(2 * 1024 ** 3, Math.floor(containerMemoryBytes * 0.25)),
+      ),
+    );
+    const maxCpusByMemory = Math.max(1, Math.floor(containerMemoryBytes / (8 * 1024 ** 3)));
+    const containerCpus = Math.min(maxCpusByMemory, Math.max(1, hostCpus - 1));
+    const nanoCpus = containerCpus * 1_000_000_000;
+    const nodeHeapMb = Math.max(
+      2048,
+      Math.floor((containerMemoryBytes / 1024 ** 2 / Math.max(1, containerCpus)) * 0.75),
+    );
+    const forcedNodeOptions =
+      `--max-old-space-size=${nodeHeapMb} ` +
+      "--no-network-family-autoselection --experimental-vm-modules";
+
     const wrappedSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
-    const seededSteps = appendOutputCaptureStep(wrappedSteps ?? []);
+    const tunedSteps = (wrappedSteps ?? []).map((step: any) => {
+      if (step?.reference?.type !== "script" || !Array.isArray(step?.inputs?.map)) {
+        return step;
+      }
+      const map = step.inputs.map.map((entry: any) => {
+        if (entry?.key !== "script" || typeof entry?.value !== "string") {
+          return entry;
+        }
+        return {
+          ...entry,
+          value: `export NODE_OPTIONS="${forcedNodeOptions}"\n${entry.value}`,
+        };
+      });
+      return {
+        ...step,
+        inputs: {
+          ...step.inputs,
+          map,
+        },
+      };
+    });
+    const seededSteps = appendOutputCaptureStep(tunedSteps);
 
     t0 = Date.now();
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
@@ -363,6 +418,9 @@ export async function executeLocalJob(
       });
     }
 
+    // Determine repo root for Yarn Berry detection
+    const repoRoot = job.workflowPath ? findRepoRoot(job.workflowPath) : undefined;
+
     const containerEnv = buildContainerEnv({
       containerName,
       registrationToken,
@@ -372,6 +430,8 @@ export async function executeLocalJob(
       headSha: job.headSha,
       dtuHost,
       useDirectContainer,
+      repoRoot,
+      maxConcurrency: containerCpus,
     });
 
     const containerBinds = buildContainerBinds({
@@ -397,6 +457,18 @@ export async function executeLocalJob(
       containerName,
     });
 
+    // On Linux, host.docker.internal doesn't work by default - need to add explicit mapping
+    const isLinux = process.platform === "linux";
+    const extraHosts = isLinux && !serviceCtx ? ["host.docker.internal:172.17.0.1"] : undefined;
+
+    debugRunner(
+      `Container resource budget: host_mem=${Math.round(hostMemoryBytes / 1024 ** 3)}GB ` +
+        `container_mem=${Math.round(containerMemoryBytes / 1024 ** 3)}GB ` +
+        `reservation_mem=${Math.round(memoryReservationBytes / 1024 ** 3)}GB ` +
+        `swap_mem=${Math.round(memorySwapBytes / 1024 ** 3)}GB host_cpus=${hostCpus} ` +
+        `container_cpus=${containerCpus} node_heap_mb=${nodeHeapMb}`,
+    );
+
     t0 = Date.now();
     const container = await docker.createContainer({
       Image: containerImage,
@@ -408,6 +480,10 @@ export async function executeLocalJob(
         Binds: containerBinds,
         AutoRemove: false,
         Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
+        Memory: containerMemoryBytes,
+        MemoryReservation: memoryReservationBytes,
+        MemorySwap: memorySwapBytes,
+        NanoCpus: nanoCpus,
         ...(serviceCtx ? { NetworkMode: serviceCtx.networkName } : {}),
       },
       Tty: true,
@@ -526,6 +602,12 @@ export async function executeLocalJob(
 
         if (!fs.existsSync(timelinePath)) {
           return;
+        }
+
+        const timelineStat = fs.statSync(timelinePath);
+        if (timelineStat.mtimeMs > lastTimelineMtimeMs) {
+          lastTimelineMtimeMs = timelineStat.mtimeMs;
+          lastRunnerActivityAt = Date.now();
         }
 
         const records = JSON.parse(fs.readFileSync(timelinePath, "utf-8")) as any[];
@@ -689,10 +771,84 @@ export async function executeLocalJob(
     // Start waiting for container exit in parallel with log streaming.
     const containerWaitPromise = container.wait();
 
+    // ── CPU stall watchdog ──────────────────────────────────────────────────────
+    let stalledRunnerKilled = false;
+    let lastRunnerActivityAt = Date.now();
+    let lastTimelineMtimeMs = 0;
+    const stalledRunnerInterval = setInterval(() => {
+      if (tailDone || isPaused) {
+        return;
+      }
+      const idleMs = Date.now() - lastRunnerActivityAt;
+      if (idleMs < RUNNER_STALL_TIMEOUT_MS || stalledRunnerKilled) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const stats = await container.stats({ stream: false });
+          const cpuPercent = computeDockerCpuPercent(stats);
+          if (cpuPercent > 1) {
+            lastRunnerActivityAt = Date.now();
+            return;
+          }
+
+          stalledRunnerKilled = true;
+          debugRunner(
+            `Runner appears stalled for ${Math.floor(idleMs / 1000)}s (cpu=${cpuPercent.toFixed(2)}%). Killing container...`,
+          );
+          try {
+            await container.kill();
+          } catch {
+            // best-effort
+          }
+        } catch {
+          // best-effort
+        }
+      })();
+    }, RUNNER_STALL_CHECK_INTERVAL_MS);
+
+    // ── Memory pressure watchdog ────────────────────────────────────────────────
+    const MEMORY_PRESSURE_THRESHOLD_PERCENT = 99;
+    const MEMORY_CHECK_INTERVAL_MS = 3000;
+    const MEMORY_PRESSURE_SAMPLES_TO_KILL = 10;
+    let memoryPressureKill = false;
+    let memoryPressureHitCount = 0;
+    const memoryWatchdogInterval = setInterval(() => {
+      if (tailDone || isPaused || memoryPressureKill) {
+        return;
+      }
+      void (async () => {
+        try {
+          const stats = await container.stats({ stream: false });
+          const mem = extractMemoryStats(stats);
+          if (mem.percent >= MEMORY_PRESSURE_THRESHOLD_PERCENT) {
+            memoryPressureHitCount += 1;
+          } else {
+            memoryPressureHitCount = 0;
+          }
+          if (memoryPressureHitCount >= MEMORY_PRESSURE_SAMPLES_TO_KILL) {
+            memoryPressureKill = true;
+            debugRunner(
+              `Memory pressure detected: ${mem.percent.toFixed(1)}% (${Math.round(mem.usageBytes / 1024 ** 2)}MB / ${Math.round(mem.limitBytes / 1024 ** 2)}MB). Killing container to prevent OOM freeze...`,
+            );
+            try {
+              await container.kill();
+            } catch {
+              // best-effort
+            }
+          }
+        } catch {
+          // best-effort: stats may fail if container exits
+        }
+      })();
+    }, MEMORY_CHECK_INTERVAL_MS);
+
     await new Promise<void>((resolve) => {
       const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
 
       rl.on("line", (line) => {
+        lastRunnerActivityAt = Date.now();
         debugStream.write(line + "\n");
       });
 
@@ -708,6 +864,8 @@ export async function executeLocalJob(
     });
 
     tailDone = true;
+    clearInterval(stalledRunnerInterval);
+    clearInterval(memoryWatchdogInterval);
     cleanupStdin();
     await pollPromise;
 
@@ -745,6 +903,22 @@ export async function executeLocalJob(
 
     await new Promise<void>((resolve) => debugStream.end(resolve));
 
+    try {
+      const hostUid = process.getuid?.() || 1000;
+      const hostGid = process.getgid?.() || 1000;
+      const cleanupContainer = await docker.createContainer({
+        Image: "alpine:latest",
+        Cmd: ["sh", "-c", `chown -R ${hostUid}:${hostGid} /work /diag`],
+        HostConfig: {
+          Binds: [`${dirs.containerWorkDir}:/work`, `${dirs.diagDir}:/diag`],
+          AutoRemove: true,
+        },
+        User: "root",
+      });
+      await cleanupContainer.start();
+      await cleanupContainer.wait();
+    } catch {}
+
     // Cleanup
     try {
       await container.remove({ force: true });
@@ -754,18 +928,26 @@ export async function executeLocalJob(
     if (serviceCtx) {
       await cleanupServiceContainers(docker, serviceCtx, (line) => debugRunner(line));
     }
-    if (fs.existsSync(dirs.shimsDir)) {
-      fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
-    }
-    if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
-      fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
-    }
-    if (fs.existsSync(dirs.diagDir)) {
-      fs.rmSync(dirs.diagDir, { recursive: true, force: true });
-    }
-    if (fs.existsSync(hostRunnerDir)) {
-      fs.rmSync(hostRunnerDir, { recursive: true, force: true });
-    }
+    try {
+      if (fs.existsSync(dirs.shimsDir)) {
+        fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
+      }
+    } catch {}
+    try {
+      if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
+        fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
+      }
+    } catch {}
+    try {
+      if (fs.existsSync(dirs.diagDir)) {
+        fs.rmSync(dirs.diagDir, { recursive: true, force: true });
+      }
+    } catch {}
+    try {
+      if (fs.existsSync(hostRunnerDir)) {
+        fs.rmSync(hostRunnerDir, { recursive: true, force: true });
+      }
+    } catch {}
     // Read step outputs captured by the DTU server via the runner's outputs API
     let stepOutputs: Record<string, string> = {};
     if (jobSucceeded) {
@@ -780,7 +962,9 @@ export async function executeLocalJob(
     }
 
     if (jobSucceeded && fs.existsSync(dirs.containerWorkDir)) {
-      fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
+      } catch {}
     }
 
     await ephemeralDtu?.close().catch(() => {});

@@ -63,7 +63,7 @@ describe("buildContainerBinds", () => {
     expect(binds).toContain("/tmp/work:/home/runner/_work");
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
-    expect(binds).toContain("/tmp/warm:/tmp/warm-modules");
+    expect(binds).toContain("/tmp/warm:/tmp/warm-modules/node_modules");
     // Standard mode should NOT include runner home bind (but _work bind is expected)
     expect(binds.some((b) => b.endsWith(":/home/runner"))).toBe(false);
   });

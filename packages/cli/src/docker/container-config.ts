@@ -1,3 +1,7 @@
+import fs from "fs";
+import path from "path";
+import { execSync } from "child_process";
+
 export interface ContainerEnvOpts {
   containerName: string;
   registrationToken: string;
@@ -7,6 +11,8 @@ export interface ContainerEnvOpts {
   headSha?: string;
   dtuHost: string;
   useDirectContainer: boolean;
+  repoRoot?: string;
+  maxConcurrency?: number;
 }
 
 export interface ContainerBindsOpts {
@@ -32,6 +38,40 @@ export interface ContainerCmdOpts {
   containerName: string;
 }
 
+// ─── Yarn Berry detection ─────────────────────────────────────────────────────
+
+/**
+ * Detects if the repository uses Yarn Berry.
+ *
+ * Yarn Berry (yarn 2+) uses .yarnrc.yml. With nmMode:classic or when packages
+ * are hoisted to the root of node_modules, Node's module resolution can't find
+ * packages because it expects them in a node_modules subdirectory. When agent-ci
+ * bind-mounts warm-modules to /tmp/warm-modules and symlinks workspace/node_modules
+ * -> /tmp/warm-modules, Node can't resolve packages without NODE_PATH being set.
+ *
+ * We set NODE_PATH for all Yarn Berry repos to be safe - it doesn't hurt other
+ * configurations but fixes the classic/hoisted case.
+ */
+function shouldSetNodePathForYarnBerry(repoRoot: string | undefined): boolean {
+  if (!repoRoot) {
+    return false;
+  }
+
+  // Check for .yarnrc.yml which indicates Yarn Berry (yarn 2+)
+  const yarnrcPath = path.join(repoRoot, ".yarnrc.yml");
+  if (fs.existsSync(yarnrcPath)) {
+    return true;
+  }
+
+  // Also check for .yarn directory which is present in Yarn Berry repos
+  const yarnDir = path.join(repoRoot, ".yarn");
+  if (fs.existsSync(yarnDir)) {
+    return true;
+  }
+
+  return false;
+}
+
 // ─── Environment variables ────────────────────────────────────────────────────
 
 /**
@@ -47,6 +87,8 @@ export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
     headSha,
     dtuHost,
     useDirectContainer,
+    repoRoot,
+    maxConcurrency,
   } = opts;
 
   return [
@@ -63,12 +105,28 @@ export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
     `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
     `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
     `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
-    `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+    `PATH=/tmp/warm-modules/node_modules/.bin:/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     // Force colour output in all child processes (pnpm, Node, etc.)
     `FORCE_COLOR=1`,
     // Custom containers may run as root and lack libicu — configure accordingly
     ...(useDirectContainer
       ? [`RUNNER_ALLOW_RUNASROOT=1`, `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`]
+      : []),
+    // Yarn Berry with nmMode:classic needs NODE_PATH for module resolution
+    // because packages are hoisted to the root of node_modules but Node expects
+    // them in a node_modules subdirectory. The warm-modules directory is bind-mounted
+    // to /tmp/warm-modules and symlinked as workspace/node_modules.
+    ...(shouldSetNodePathForYarnBerry(repoRoot)
+      ? [`NODE_PATH=/tmp/warm-modules/node_modules`]
+      : []),
+    // Resource-aware concurrency caps based on memory budget
+    ...(maxConcurrency
+      ? [
+          `AGENT_CI_MAX_CONCURRENCY=${maxConcurrency}`,
+          `NX_PARALLEL=${maxConcurrency}`,
+          `JEST_WORKERS=${maxConcurrency}`,
+          `OXCORE_NUM_CPUS=${maxConcurrency}`,
+        ]
       : []),
   ];
 }
@@ -112,8 +170,8 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
     // Warm node_modules: mounted outside the workspace so actions/checkout can
     // delete the symlink without EBUSY. A symlink in the entrypoint points
-    // workspace/node_modules → /tmp/warm-modules.
-    `${h(warmModulesDir)}:/tmp/warm-modules`,
+    // workspace/node_modules → /tmp/warm-modules/node_modules.
+    `${h(warmModulesDir)}:/tmp/warm-modules/node_modules`,
   ];
 }
 
@@ -142,6 +200,8 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
 
   const cmdScript = [
     `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }`,
+    `detect_resources() { CPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 1); MEM_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0); if [ "$MEM_KB" -gt 0 ]; then HEAP_MB=$((MEM_KB / 1024 - 512)); else HEAP_MB=2048; fi; if [ "$HEAP_MB" -lt 1024 ]; then HEAP_MB=1024; fi; export AGENT_CI_MAX_CPUS="$CPUS"; [ -z "$NX_PARALLEL" ] && export NX_PARALLEL="$CPUS"; [ -z "$JEST_WORKERS" ] && export JEST_WORKERS="$CPUS"; [ -z "$OXCORE_NUM_CPUS" ] && export OXCORE_NUM_CPUS="$CPUS"; DYNAMIC_NODE_OPTIONS="--max-old-space-size=$HEAP_MB --no-network-family-autoselection --experimental-vm-modules"; if [ -n "$NODE_OPTIONS" ]; then export NODE_OPTIONS="$NODE_OPTIONS $DYNAMIC_NODE_OPTIONS"; else export NODE_OPTIONS="$DYNAMIC_NODE_OPTIONS"; fi; echo "[agent-ci:boot] resources: cpus=$CPUS heap_mb=$HEAP_MB"; }`,
+    `init_warm_modules() { mkdir -p /tmp/warm-modules /tmp/warm-modules/node_modules; chmod 1777 /tmp 2>/dev/null || true; chmod 777 /tmp/warm-modules /tmp/warm-modules/node_modules 2>/dev/null || true; }`,
     `BOOT_T0=$(date +%s%3N); T0=$BOOT_T0`,
     // chmod is done host-side in workspacePrepPromise — skip it here
     `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/agent-ci-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
@@ -154,20 +214,24 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     `REPO_NAME=$(basename $GITHUB_REPOSITORY)`,
     `WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME`,
     `mkdir -p $WORKSPACE_PATH`,
-    `ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules`,
+    `detect_resources`,
+    `init_warm_modules`,
+    `ln -sfn /tmp/warm-modules/node_modules $WORKSPACE_PATH/node_modules 2>/dev/null || true`,
+    `if [ -d $WORKSPACE_PATH/node_modules/@leftlane ]; then rm -f $WORKSPACE_PATH/node_modules/@leftlane/utils 2>/dev/null; ln -sfn $WORKSPACE_PATH/utils $WORKSPACE_PATH/node_modules/@leftlane/utils 2>/dev/null || true; rm -f $WORKSPACE_PATH/node_modules/@leftlane/gql-mocks 2>/dev/null; ln -sfn $WORKSPACE_PATH/gql-mocks $WORKSPACE_PATH/node_modules/@leftlane/gql-mocks 2>/dev/null || true; rm -f $WORKSPACE_PATH/node_modules/@leftlane/contract 2>/dev/null; ln -sfn $WORKSPACE_PATH/customer-app-contract $WORKSPACE_PATH/node_modules/@leftlane/contract 2>/dev/null || true; fi`,
     T("workspace-setup"),
     `echo "[agent-ci:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
     `echo "[agent-ci:boot] starting run.sh --once"`,
-    `./run.sh --once`,
+    `RUNNER_PID=""; ./run.sh --once & RUNNER_PID=$!; if [ -z "$RUNNER_PID" ]; then echo "[agent-ci:boot] failed to start runner"; exit 1; fi`,
+    `touch /tmp/agent-ci-runner-heartbeat`,
+    `echo "$RUNNER_PID" >/tmp/agent-ci-runner.pid`,
+    `MONITOR_PID=""; ( while [ -f /tmp/agent-ci-runner.pid ]; do RUN_PID=$(cat /tmp/agent-ci-runner.pid 2>/dev/null || true); if [ -z "$RUN_PID" ] || ! kill -0 "$RUN_PID" 2>/dev/null; then break; fi; MEM_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0); LOAD=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0); touch /tmp/agent-ci-runner-heartbeat 2>/dev/null || true; if [ "$MEM_KB" -gt 0 ] && [ "$MEM_KB" -lt 131072 ]; then echo "[agent-ci:guard] low-memory mem_kb=$MEM_KB load=$LOAD"; kill -STOP "$RUN_PID" 2>/dev/null || true; sleep 2; kill -CONT "$RUN_PID" 2>/dev/null || true; fi; sleep 5; done ) & MONITOR_PID=$!`,
+    `wait "$RUNNER_PID"; RUNNER_EXIT=$?; rm -f /tmp/agent-ci-runner.pid; if [ -n "$MONITOR_PID" ]; then kill "$MONITOR_PID" 2>/dev/null || true; wait "$MONITOR_PID" 2>/dev/null || true; fi; exit "$RUNNER_EXIT"`,
   ].join(" && ");
 
   return [...(useDirectContainer ? ["-c"] : ["bash", "-c"]), cmdScript];
 }
 
 // ─── DTU host resolution ──────────────────────────────────────────────────────
-
-import fs from "fs";
-import { execSync } from "child_process";
 
 /**
  * Resolve the DTU host address that nested Docker containers can reach.
