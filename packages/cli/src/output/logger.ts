@@ -37,6 +37,15 @@ export function getNextLogNum(prefix: string): number {
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
 
+function isPermissionError(error: unknown): error is NodeJS.ErrnoException {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeCode = (error as { code?: unknown }).code;
+  return maybeCode === "EACCES" || maybeCode === "EPERM";
+}
+
 export function createLogContext(prefix: string, preferredName?: string) {
   ensureLogDirs();
 
@@ -48,9 +57,20 @@ export function createLogContext(prefix: string, preferredName?: string) {
     name = `${prefix}-${num}`;
   }
 
-  const runDir = path.join(getRunsDir(), name);
-  const logDir = path.join(runDir, "logs");
-  fs.mkdirSync(logDir, { recursive: true });
+  let runDir = path.join(getRunsDir(), name);
+  let logDir = path.join(runDir, "logs");
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch (error: unknown) {
+    if (!preferredName || !isPermissionError(error)) {
+      throw error;
+    }
+    num = getNextLogNum(prefix);
+    name = `${prefix}-${num}`;
+    runDir = path.join(getRunsDir(), name);
+    logDir = path.join(runDir, "logs");
+    fs.mkdirSync(logDir, { recursive: true });
+  }
 
   return {
     num,
