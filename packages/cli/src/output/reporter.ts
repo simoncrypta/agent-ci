@@ -20,6 +20,8 @@ export interface JobResult {
   failedStepLogPath?: string;
   failedExitCode?: number;
   lastOutputLines?: string[];
+  failureHighlights?: string[];
+  failedTaskDetails?: Array<{ task: string; command?: string; error?: string; hint?: string }>;
   /** Number of attempts (only set when > 1, i.e. retried) */
   attempt?: number;
   /** Step outputs captured from $GITHUB_OUTPUT files */
@@ -60,6 +62,48 @@ export function printSummary(results: JobResult[], runDir?: string): void {
         process.stdout.write(`    Last output:\n`);
         for (const line of f.lastOutputLines) {
           process.stdout.write(`      ${line}\n`);
+        }
+      }
+      if (f.failureHighlights && f.failureHighlights.length > 0) {
+        process.stdout.write(`    Failure highlights:\n`);
+        for (const line of f.failureHighlights) {
+          process.stdout.write(`      - ${line}\n`);
+        }
+      }
+      if (f.failedTaskDetails && f.failedTaskDetails.length > 0) {
+        process.stdout.write(`    Failed task details:\n`);
+        const ambiguousHint = "multiple failures detected; task-specific command mapping ambiguous";
+        const allAmbiguous = f.failedTaskDetails.every(
+          (d) => d.hint === ambiguousHint && !d.command,
+        );
+        const sameError =
+          allAmbiguous &&
+          f.failedTaskDetails.every((d) => d.error === f.failedTaskDetails?.[0]?.error);
+
+        if (allAmbiguous && sameError) {
+          const tasks = f.failedTaskDetails.map((d) => d.task);
+          const shown = tasks.slice(0, 6).join(", ");
+          const remaining = tasks.length - 6;
+          process.stdout.write(
+            `      - ${remaining > 0 ? `${shown}, +${remaining} more` : shown}\n`,
+          );
+          process.stdout.write(`        hint: ${ambiguousHint}\n`);
+          if (f.failedTaskDetails[0]?.error) {
+            process.stdout.write(`        error: ${f.failedTaskDetails[0].error}\n`);
+          }
+        } else {
+          for (const detail of f.failedTaskDetails) {
+            process.stdout.write(`      - ${detail.task}\n`);
+            if (detail.hint) {
+              process.stdout.write(`        hint: ${detail.hint}\n`);
+            }
+            if (detail.command) {
+              process.stdout.write(`        command: ${detail.command}\n`);
+            }
+            if (detail.error) {
+              process.stdout.write(`        error: ${detail.error}\n`);
+            }
+          }
         }
       }
       process.stdout.write("\n");
