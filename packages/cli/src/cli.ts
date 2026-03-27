@@ -27,6 +27,7 @@ import {
   evaluateJobIf,
   parseFailFast,
 } from "./workflow/workflow-parser.js";
+import { assertNoUnsupportedFeatures } from "./workflow/unsupported-features.js";
 import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
@@ -449,6 +450,8 @@ async function handleWorkflow(options: {
     const githubRepo = resolveRepoInfo(repoRoot);
     const [owner, name] = githubRepo.split("/");
 
+    assertNoUnsupportedFeatures(workflowPath);
+
     const template = await getWorkflowTemplate(workflowPath);
     const jobs = template.jobs.filter((j) => j.type === "job");
 
@@ -798,7 +801,17 @@ async function handleWorkflow(options: {
 
     return allResults;
   } catch (error) {
-    console.error(`[Agent CI] Failed to trigger run: ${(error as Error).message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("[Agent CI]")) {
+      const normalized = message.replace(/^\[Agent CI\]\s*/, "");
+      const indented = normalized
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n");
+      console.error(`\n[Agent CI]\nFailed to trigger run:\n${indented}`);
+    } else {
+      console.error(`\n[Agent CI]\nFailed to trigger run:\n  ${message}`);
+    }
     return [];
   }
 }
