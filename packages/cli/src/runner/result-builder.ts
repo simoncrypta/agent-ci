@@ -52,6 +52,140 @@ export interface FailureDetails {
   exitCode?: number;
   stepLogPath?: string;
   tailLines?: string[];
+  failureHighlights?: string[];
+  failedTaskDetails?: Array<{ task: string; command?: string; error?: string; hint?: string }>;
+}
+
+function isSignalErrorLine(raw: string): boolean {
+  const line = raw.trim();
+  if (!line) {
+    return false;
+  }
+
+  return (
+    line.includes("Validation Error") ||
+    /^Module\s+.+\s+was not found\./.test(line) ||
+    line.startsWith("command not found:") ||
+    line.includes("error TS") ||
+    line.includes("Cannot find module") ||
+    line.includes("Cannot find package") ||
+    line.startsWith("Error [") ||
+    line.startsWith("Error:") ||
+    line.includes("ERR_")
+  );
+}
+
+function extractFailureHighlights(lines: string[], max = 5): string[] {
+  const actionable: string[] = [];
+  const generic: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!isSignalErrorLine(trimmed)) {
+      continue;
+    }
+    if (seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    if (trimmed.includes("Validation Error")) {
+      generic.push(trimmed);
+    } else {
+      actionable.push(trimmed);
+    }
+  }
+
+  const highlights: string[] = [];
+  for (const line of actionable) {
+    highlights.push(line);
+    if (highlights.length >= max) {
+      break;
+    }
+  }
+  for (const line of generic) {
+    if (highlights.length >= max) {
+      break;
+    }
+    highlights.push(line);
+  }
+  return highlights;
+}
+
+function extractFailedTaskDetails(stepLogPath: string): {
+  details: Array<{ task: string; command?: string; error?: string; hint?: string }>;
+  highlights: string[];
+} {
+  try {
+    const content = fs.readFileSync(stepLogPath, "utf-8");
+    const lines = content.split("\n");
+    const highlights = extractFailureHighlights(lines);
+
+    const failedTasksIdx = lines.findIndex((l) => l.trim() === "Failed tasks:");
+    if (failedTasksIdx < 0) {
+      return { details: [], highlights };
+    }
+
+    const failedTasks: string[] = [];
+    for (let i = failedTasksIdx + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line.startsWith("- ")) {
+        break;
+      }
+      failedTasks.push(line.slice(2).trim());
+    }
+
+    if (failedTasks.length === 0) {
+      return { details: [], highlights };
+    }
+
+    const commandFailures = lines
+      .map((line, index) => {
+        const m = line.match(/Warning: command "(.+?)" exited with non-zero status code/);
+        if (!m) {
+          return undefined;
+        }
+        return { command: m[1], index };
+      })
+      .filter((item): item is { command: string; index: number } => Boolean(item));
+
+    const nearestSignalError = (anchor: number): string | undefined => {
+      const start = Math.max(0, anchor - 40);
+      const end = Math.min(lines.length - 1, anchor + 5);
+      for (let i = end; i >= start; i--) {
+        if (isSignalErrorLine(lines[i])) {
+          return lines[i].trim();
+        }
+      }
+      return undefined;
+    };
+
+    const details: Array<{ task: string; command?: string; error?: string; hint?: string }> = [];
+    if (failedTasks.length === commandFailures.length) {
+      for (let i = 0; i < failedTasks.length; i++) {
+        details.push({
+          task: failedTasks[i],
+          command: commandFailures[i].command,
+          error: nearestSignalError(commandFailures[i].index),
+          hint: "mapped by command failure order",
+        });
+      }
+    } else {
+      const fallbackError = highlights[0];
+      for (const task of failedTasks) {
+        details.push({
+          task,
+          error: fallbackError,
+          hint:
+            commandFailures.length > 0
+              ? "multiple failures detected; task-specific command mapping ambiguous"
+              : "no explicit command failure markers found in step log",
+        });
+      }
+    }
+    return { details, highlights };
+  } catch {
+    return { details: [], highlights: [] };
+  }
 }
 
 /**
@@ -94,6 +228,9 @@ export function extractFailureDetails(
       if (fs.existsSync(stepLogPath)) {
         result.stepLogPath = stepLogPath;
         result.tailLines = tailLogFile(stepLogPath);
+        const extracted = extractFailedTaskDetails(stepLogPath);
+        result.failedTaskDetails = extracted.details;
+        result.failureHighlights = extracted.highlights;
         break;
       }
     }
@@ -287,6 +424,8 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
       }
       result.failedStepLogPath = failure.stepLogPath;
       result.lastOutputLines = failure.tailLines ?? [];
+      result.failureHighlights = failure.failureHighlights;
+      result.failedTaskDetails = failure.failedTaskDetails;
     } else {
       result.lastOutputLines = [];
     }
