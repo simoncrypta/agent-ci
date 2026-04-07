@@ -239,6 +239,11 @@ export async function executeLocalJob(
   process.once("SIGINT", signalCleanup);
   process.once("SIGTERM", signalCleanup);
 
+  // Hoisted for cleanup in `finally` — assigned inside the try block.
+  let container: Docker.Container | null = null;
+  let serviceCtx: ServiceContext | undefined;
+  const hostRunnerDir = path.resolve(runDir, "runner");
+
   try {
     // 1. Seed the job to Local DTU
     const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
@@ -253,6 +258,11 @@ export async function executeLocalJob(
 
     const wrappedSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
     const seededSteps = appendOutputCaptureStep(wrappedSteps ?? []);
+
+    // Pin runnerName so the job goes to the runner-specific pool, not the
+    // shared generic pool where a runner from another concurrent workflow
+    // could steal it (see issue #103).
+    job.runnerName = containerName;
 
     t0 = Date.now();
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
@@ -326,7 +336,6 @@ export async function executeLocalJob(
     }
 
     // ── Service containers ────────────────────────────────────────────────────
-    let serviceCtx: ServiceContext | undefined;
     if (job.services && job.services.length > 0) {
       const svcStart = Date.now();
       debugRunner(`Starting ${job.services.length} service container(s)...`);
@@ -343,7 +352,6 @@ export async function executeLocalJob(
     // ── Direct container injection ─────────────────────────────────────────────
     const hostWorkDir = dirs.containerWorkDir;
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
-    const hostRunnerDir = path.resolve(runDir, "runner");
     const useDirectContainer = !!job.container;
     const containerImage = useDirectContainer ? job.container!.image : IMAGE;
 
@@ -522,7 +530,7 @@ export async function executeLocalJob(
     const extraHosts = resolveDockerExtraHosts(dtuHost);
 
     t0 = Date.now();
-    const container = await docker.createContainer({
+    container = await docker.createContainer({
       Image: containerImage,
       name: containerName,
       Env: containerEnv,
@@ -850,27 +858,6 @@ export async function executeLocalJob(
 
     await new Promise<void>((resolve) => debugStream.end(resolve));
 
-    // Cleanup
-    try {
-      await container.remove({ force: true });
-    } catch {
-      /* already removed */
-    }
-    if (serviceCtx) {
-      await cleanupServiceContainers(docker, serviceCtx, (line) => debugRunner(line));
-    }
-    if (fs.existsSync(dirs.shimsDir)) {
-      fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
-    }
-    if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
-      fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
-    }
-    if (fs.existsSync(dirs.diagDir)) {
-      fs.rmSync(dirs.diagDir, { recursive: true, force: true });
-    }
-    if (fs.existsSync(hostRunnerDir)) {
-      fs.rmSync(hostRunnerDir, { recursive: true, force: true });
-    }
     // Read step outputs captured by the DTU server via the runner's outputs API
     let stepOutputs: Record<string, string> = {};
     if (jobSucceeded) {
@@ -893,8 +880,6 @@ export async function executeLocalJob(
       }
     }
 
-    await ephemeralDtu?.close().catch(() => {});
-
     return buildJobResult({
       containerName,
       job,
@@ -908,6 +893,28 @@ export async function executeLocalJob(
       stepOutputs,
     });
   } finally {
+    // Cleanup: always runs even when errors occur mid-run.
+    try {
+      await container?.remove({ force: true });
+    } catch {
+      /* already removed */
+    }
+    if (serviceCtx) {
+      await cleanupServiceContainers(docker, serviceCtx, (line) => debugRunner(line));
+    }
+    if (fs.existsSync(dirs.shimsDir)) {
+      fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
+    }
+    if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
+      fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
+    }
+    if (fs.existsSync(dirs.diagDir)) {
+      fs.rmSync(dirs.diagDir, { recursive: true, force: true });
+    }
+    if (fs.existsSync(hostRunnerDir)) {
+      fs.rmSync(hostRunnerDir, { recursive: true, force: true });
+    }
+    await ephemeralDtu?.close().catch(() => {});
     process.removeListener("SIGINT", signalCleanup);
     process.removeListener("SIGTERM", signalCleanup);
   }
