@@ -557,6 +557,7 @@ export async function executeLocalJob(
       warmModulesDir: dirs.warmModulesDir,
       hostRunnerDir,
       useDirectContainer,
+      githubRepo,
       dockerSocketPath: getDockerSocket().socketPath || undefined,
     });
 
