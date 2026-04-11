@@ -79,7 +79,7 @@ function getDockerSocket(): DockerSocket {
   return _resolvedSocket;
 }
 
-function getDocker(): Docker {
+export function getDocker(): Docker {
   if (!_docker) {
     const socket = getDockerSocket();
     if (socket.socketPath) {
