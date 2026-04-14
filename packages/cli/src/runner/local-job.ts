@@ -35,6 +35,28 @@ import { buildJobResult, sanitizeStepName } from "./result-builder.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
+function ensureWorldWritableRecursive(rootDir: string): void {
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+
+    const stat = fs.statSync(current);
+    fs.chmodSync(current, stat.isDirectory() ? 0o777 : 0o755);
+
+    if (!stat.isDirectory()) {
+      continue;
+    }
+
+    for (const entry of fs.readdirSync(current)) {
+      stack.push(path.join(current, entry));
+    }
+  }
+}
+
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
 const dockerHost = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
@@ -346,6 +368,7 @@ export async function executeLocalJob(
         );
         await fs.promises.writeFile(configShPath, configSh);
         await fs.promises.writeFile(markerFile, new Date().toISOString());
+        ensureWorldWritableRecursive(hostRunnerSeedDir);
         debugRunner(`Runner extracted.`);
       }
       for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
@@ -356,6 +379,7 @@ export async function executeLocalJob(
         }
       }
       execSync(`cp -a "${hostRunnerSeedDir}" "${hostRunnerDir}"`, { stdio: "pipe" });
+      ensureWorldWritableRecursive(hostRunnerDir);
 
       const resolvedUrl = `${dockerApiUrl}/${githubRepo}`;
       writeRunnerCredentials(hostRunnerDir, containerName, resolvedUrl);
