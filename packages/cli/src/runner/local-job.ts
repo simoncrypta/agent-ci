@@ -45,7 +45,13 @@ import {
 } from "./runner-image.js";
 import { findRepoRoot } from "./metadata.js";
 
-function ensureWorldWritableRecursive(rootDir: string): void {
+// Recursively chmod directories to be world-writable (0o777 = rwxrwxrwx).
+// This is necessary because docker cp and cp -a can copy files with restrictive
+// permissions from the container (often owned by root), leaving the runner unable
+// to create files like run-helper.sh in direct-container mode.
+// 0o777 = owner/group/others all have read+write+execute (rwxrwxrwx)
+// 0o755 = owner has rwx, group/others have r-x (rwxr-xr-x)
+function ensureRunnerWriteable(rootDir: string): void {
   const stack = [rootDir];
 
   while (stack.length > 0) {
@@ -55,6 +61,7 @@ function ensureWorldWritableRecursive(rootDir: string): void {
     }
 
     const stat = fs.statSync(current);
+    // Directories need full write access (777), files need read+execute for all (755)
     fs.chmodSync(current, stat.isDirectory() ? 0o777 : 0o755);
 
     if (!stat.isDirectory()) {
@@ -469,7 +476,7 @@ export async function executeLocalJob(
         );
         await fs.promises.writeFile(configShPath, configSh);
         await fs.promises.writeFile(markerFile, new Date().toISOString());
-        ensureWorldWritableRecursive(hostRunnerSeedDir);
+        ensureRunnerWriteable(hostRunnerSeedDir);
         debugRunner(`Runner extracted.`);
       }
       for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
@@ -480,7 +487,6 @@ export async function executeLocalJob(
         }
       }
       execSync(`cp -a "${hostRunnerSeedDir}" "${hostRunnerDir}"`, { stdio: "pipe" });
-      ensureWorldWritableRecursive(hostRunnerDir);
 
       const resolvedUrl = `${dockerApiUrl}/${githubRepo}`;
       writeRunnerCredentials(hostRunnerDir, containerName, resolvedUrl);
